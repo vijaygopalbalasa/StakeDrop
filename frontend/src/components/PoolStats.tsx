@@ -3,115 +3,157 @@
 import { usePool } from '@/hooks/usePool';
 import { formatAda } from '@/lib/constants';
 import { PoolStatus } from '@/types';
-import { Users, Coins, Trophy, Clock, TrendingUp, Lock } from 'lucide-react';
+import { Users, Coins, Trophy, Clock, TrendingUp, Lock, AlertCircle, RefreshCw, Zap } from 'lucide-react';
 
 export function PoolStats() {
-  const { state, loading, getTimeRemaining } = usePool();
+  const { state, loading, error, epochInfo, getTimeRemaining, refresh } = usePool();
   const timeRemaining = getTimeRemaining();
 
   if (loading) {
     return (
-      <div className="bg-midnight-900/50 rounded-xl p-6 border border-midnight-800">
-        <div className="animate-pulse space-y-4">
-          <div className="h-6 bg-midnight-800 rounded w-1/3" />
-          <div className="grid grid-cols-2 gap-4">
-            {[...Array(4)].map((_, i) => (
-              <div key={i} className="h-20 bg-midnight-800 rounded-lg" />
-            ))}
-          </div>
+      <div className="bg-brutal-white border-4 border-brutal-black shadow-brutal p-8">
+        <div className="flex items-center justify-center gap-4">
+          <div className="spinner-brutal w-8 h-8" />
+          <span className="font-bold uppercase">Loading Pool Data...</span>
         </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-accent-pink border-4 border-brutal-black shadow-brutal p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <AlertCircle className="w-6 h-6" />
+          <span className="font-bold uppercase">Failed to Load Pool Data</span>
+        </div>
+        <p className="text-sm mb-4">{error}</p>
+        <button
+          onClick={refresh}
+          className="flex items-center gap-2 px-4 py-2 bg-brutal-white border-3 border-brutal-black hover:shadow-brutal-sm transition-all font-bold text-sm uppercase"
+        >
+          <RefreshCw className="w-4 h-4" />
+          Retry
+        </button>
       </div>
     );
   }
 
   if (!state) {
     return (
-      <div className="bg-midnight-900/50 rounded-xl p-6 border border-midnight-800">
-        <p className="text-gray-400">No active pool</p>
+      <div className="bg-brutal-cream border-4 border-brutal-black shadow-brutal p-8 text-center">
+        <div className="w-16 h-16 bg-brutal-black mx-auto mb-4 flex items-center justify-center">
+          <Coins className="w-8 h-8 text-accent-yellow" />
+        </div>
+        <p className="font-bold uppercase">No Active Pool</p>
       </div>
     );
   }
 
-  const statusColors = {
-    [PoolStatus.Collecting]: 'text-green-400 bg-green-400/10',
-    [PoolStatus.Staking]: 'text-blue-400 bg-blue-400/10',
-    [PoolStatus.Distributing]: 'text-yellow-400 bg-yellow-400/10',
-    [PoolStatus.Completed]: 'text-gray-400 bg-gray-400/10',
+  const statusConfig: Record<PoolStatus, { bg: string; icon: React.ReactNode; label: string }> = {
+    [PoolStatus.Collecting]: {
+      bg: 'bg-accent-green',
+      icon: <Coins className="w-5 h-5" />,
+      label: 'Accepting Deposits',
+    },
+    [PoolStatus.Staking]: {
+      bg: 'bg-accent-blue text-white',
+      icon: <Lock className="w-5 h-5" />,
+      label: 'Staking Active',
+    },
+    [PoolStatus.SelectingWinner]: {
+      bg: 'bg-accent-purple text-white',
+      icon: <Zap className="w-5 h-5" />,
+      label: 'Selecting Winner',
+    },
+    [PoolStatus.Distributing]: {
+      bg: 'bg-accent-yellow',
+      icon: <Trophy className="w-5 h-5" />,
+      label: 'Distributing Rewards',
+    },
+    [PoolStatus.Completed]: {
+      bg: 'bg-brutal-cream',
+      icon: <Clock className="w-5 h-5" />,
+      label: 'Epoch Completed',
+    },
   };
 
-  const statusIcons = {
-    [PoolStatus.Collecting]: <Coins className="w-4 h-4" />,
-    [PoolStatus.Staking]: <Lock className="w-4 h-4" />,
-    [PoolStatus.Distributing]: <Trophy className="w-4 h-4" />,
-    [PoolStatus.Completed]: <Clock className="w-4 h-4" />,
-  };
+  const currentStatus = statusConfig[state.status];
 
   return (
-    <div className="bg-midnight-900/50 rounded-xl p-6 border border-midnight-800">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-bold">Pool Stats</h2>
-        <div className={`flex items-center gap-2 px-3 py-1 rounded-full ${statusColors[state.status]}`}>
-          {statusIcons[state.status]}
-          <span className="text-sm font-medium">{state.status}</span>
+    <div className="bg-brutal-white border-4 border-brutal-black shadow-brutal">
+      {/* Header with Status */}
+      <div className="flex items-center justify-between p-4 border-b-4 border-brutal-black bg-accent-yellow">
+        <h2 className="text-xl font-bold uppercase tracking-wider">Pool Stats</h2>
+        <div className={`flex items-center gap-2 px-4 py-2 border-3 border-brutal-black ${currentStatus.bg}`}>
+          {currentStatus.icon}
+          <span className="font-bold text-sm uppercase">{currentStatus.label}</span>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Stats Grid */}
+      <div className="grid grid-cols-2 lg:grid-cols-4">
         {/* TVL */}
-        <div className="bg-midnight-800/50 rounded-lg p-4">
-          <div className="flex items-center gap-2 text-gray-400 text-sm mb-2">
-            <Coins className="w-4 h-4" />
-            Total Value Locked
+        <div className="p-6 border-r-4 border-b-4 lg:border-b-0 border-brutal-black bg-accent-blue text-white">
+          <div className="flex items-center gap-2 mb-2">
+            <Coins className="w-5 h-5" />
+            <span className="font-bold text-sm uppercase">Total Value Locked</span>
           </div>
-          <div className="text-2xl font-bold text-cardano-400">
-            {formatAda(state.totalDeposited)} ADA
+          <div className="text-3xl font-bold">
+            {formatAda(state.totalDeposited)}
+            <span className="text-lg ml-1">ADA</span>
           </div>
         </div>
 
         {/* Participants */}
-        <div className="bg-midnight-800/50 rounded-lg p-4">
-          <div className="flex items-center gap-2 text-gray-400 text-sm mb-2">
-            <Users className="w-4 h-4" />
-            Participants
+        <div className="p-6 border-b-4 lg:border-b-0 lg:border-r-4 border-brutal-black bg-accent-pink">
+          <div className="flex items-center gap-2 mb-2">
+            <Users className="w-5 h-5" />
+            <span className="font-bold text-sm uppercase">Participants</span>
           </div>
-          <div className="text-2xl font-bold text-white">
+          <div className="text-3xl font-bold">
             {state.participantCount}
+            <span className="text-lg ml-1">users</span>
           </div>
         </div>
 
         {/* Yield */}
-        <div className="bg-midnight-800/50 rounded-lg p-4">
-          <div className="flex items-center gap-2 text-gray-400 text-sm mb-2">
-            <TrendingUp className="w-4 h-4" />
-            Current Yield
+        <div className="p-6 border-r-4 border-brutal-black bg-accent-green">
+          <div className="flex items-center gap-2 mb-2">
+            <TrendingUp className="w-5 h-5" />
+            <span className="font-bold text-sm uppercase">Current Yield</span>
           </div>
-          <div className="text-2xl font-bold text-green-400">
-            +{formatAda(state.yieldAmount)} ADA
+          <div className="text-3xl font-bold">
+            +{formatAda(state.yieldAmount)}
+            <span className="text-lg ml-1">ADA</span>
           </div>
         </div>
 
         {/* Time Remaining */}
-        <div className="bg-midnight-800/50 rounded-lg p-4">
-          <div className="flex items-center gap-2 text-gray-400 text-sm mb-2">
-            <Clock className="w-4 h-4" />
-            Time Remaining
+        <div className="p-6 bg-accent-yellow">
+          <div className="flex items-center gap-2 mb-2">
+            <Clock className="w-5 h-5" />
+            <span className="font-bold text-sm uppercase">Time Left</span>
           </div>
           {timeRemaining && (
-            <div className="text-2xl font-bold text-white">
+            <div className="text-3xl font-bold">
               {timeRemaining.days}d {timeRemaining.hours}h
             </div>
           )}
         </div>
       </div>
 
-      {/* Epoch Info */}
-      <div className="mt-4 pt-4 border-t border-midnight-700">
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-gray-400">Epoch #{state.epochId}</span>
-          <span className="text-gray-400">
-            Ends: {state.epochEnd.toLocaleDateString()}
-          </span>
+      {/* Epoch Info Footer */}
+      <div className="flex items-center justify-between p-4 border-t-4 border-brutal-black bg-brutal-cream">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 bg-brutal-black text-brutal-white flex items-center justify-center font-bold text-sm">
+            #{state.epochId}
+          </div>
+          <span className="font-bold uppercase text-sm">Epoch</span>
         </div>
+        <span className="font-mono text-sm">
+          Ends: {state.epochEnd.toLocaleDateString()} {state.epochEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        </span>
       </div>
     </div>
   );

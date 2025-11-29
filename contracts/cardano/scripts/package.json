@@ -1,0 +1,19 @@
+{
+  "name": "stakedrop-scripts",
+  "version": "1.0.0",
+  "description": "Deployment and admin scripts for StakeDrop Cardano contracts",
+  "scripts": {
+    "deploy": "ts-node deploy.ts",
+    "deploy:preview": "CARDANO_NETWORK=preview ts-node deploy.ts",
+    "deploy:preprod": "CARDANO_NETWORK=preprod ts-node deploy.ts",
+    "deploy:mainnet": "CARDANO_NETWORK=mainnet ts-node deploy.ts"
+  },
+  "dependencies": {
+    "@meshsdk/core": "^1.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.0.0"
+  }
+}

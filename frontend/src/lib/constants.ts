@@ -15,6 +15,7 @@ export const MIDNIGHT_CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_MIDNIGHT_CONTRA
 
 // Pool settings
 export const MIN_DEPOSIT_ADA = 10; // Minimum 10 ADA deposit
+export const DEFAULT_DEPOSIT_ADA = 50; // Default deposit amount
 export const MAX_PARTICIPANTS = 100;
 export const EPOCH_DURATION_DAYS = 5;
 

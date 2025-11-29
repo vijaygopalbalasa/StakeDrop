@@ -48,3 +48,12 @@ coverage/
 
 # Secret files (user downloads these, never commit)
 *secret*.json
+
+# AI/Editor assistants
+.claude/
+.cursor/
+.aider*
+.copilot/
+CLAUDE_*
+IMPLEMENTATION_PLAN.md
+PRODUCTION_PLAN.md

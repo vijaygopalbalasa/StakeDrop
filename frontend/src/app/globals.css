@@ -1,80 +1,310 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* Neo Brutalism Base Styles */
 :root {
-  --foreground-rgb: 255, 255, 255;
-  --background-start-rgb: 10, 11, 26;
-  --background-end-rgb: 10, 11, 26;
+  --bg-primary: #FFFDF7;
+  --bg-secondary: #FEF3E2;
+  --text-primary: #000000;
+  --border-color: #000000;
+  --accent-yellow: #FFE566;
+  --accent-green: #4ADE80;
+  --accent-blue: #3B82F6;
+  --accent-pink: #FF6B9D;
+  --accent-purple: #A855F7;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
-  color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
   min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Custom scrollbar */
+/* Brutalist Selection */
+::selection {
+  background-color: var(--accent-yellow);
+  color: var(--text-primary);
+}
+
+/* Neo Brutalism Components */
+@layer components {
+  /* Cards */
+  .card-brutal {
+    @apply bg-brutal-white border-4 border-brutal-black shadow-brutal rounded-none;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  .card-brutal:hover {
+    @apply shadow-brutal-md;
+    transform: translate(-2px, -2px);
+  }
+
+  .card-brutal-yellow {
+    @apply bg-accent-yellow border-4 border-brutal-black shadow-brutal;
+  }
+
+  .card-brutal-green {
+    @apply bg-accent-green border-4 border-brutal-black shadow-brutal;
+  }
+
+  .card-brutal-pink {
+    @apply bg-accent-pink border-4 border-brutal-black shadow-brutal;
+  }
+
+  .card-brutal-blue {
+    @apply bg-accent-blue border-4 border-brutal-black shadow-brutal text-white;
+  }
+
+  /* Buttons */
+  .btn-brutal {
+    @apply px-6 py-3 font-bold text-lg border-4 border-brutal-black shadow-brutal bg-brutal-white;
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+  }
+
+  .btn-brutal:hover {
+    @apply shadow-brutal-md;
+    transform: translate(-2px, -2px);
+  }
+
+  .btn-brutal:active {
+    @apply shadow-brutal-sm;
+    transform: translate(2px, 2px);
+  }
+
+  .btn-brutal-primary {
+    @apply btn-brutal bg-accent-yellow;
+  }
+
+  .btn-brutal-success {
+    @apply btn-brutal bg-accent-green;
+  }
+
+  .btn-brutal-danger {
+    @apply btn-brutal bg-accent-pink;
+  }
+
+  .btn-brutal-purple {
+    @apply btn-brutal bg-accent-purple text-white;
+  }
+
+  .btn-brutal-blue {
+    @apply btn-brutal bg-accent-blue text-white;
+  }
+
+  .btn-brutal:disabled {
+    @apply opacity-50 cursor-not-allowed;
+    transform: none !important;
+    box-shadow: 4px 4px 0 0 #666666 !important;
+    border-color: #666666 !important;
+  }
+
+  /* Inputs */
+  .input-brutal {
+    @apply w-full px-4 py-3 text-lg font-medium bg-brutal-white border-4 border-brutal-black;
+    @apply focus:outline-none focus:ring-0 focus:border-accent-blue;
+    transition: border-color 0.15s ease;
+  }
+
+  .input-brutal::placeholder {
+    @apply text-gray-400;
+  }
+
+  /* Badges */
+  .badge-brutal {
+    @apply inline-flex items-center px-3 py-1 font-bold text-sm border-3 border-brutal-black shadow-brutal-sm;
+  }
+
+  .badge-brutal-yellow {
+    @apply badge-brutal bg-accent-yellow;
+  }
+
+  .badge-brutal-green {
+    @apply badge-brutal bg-accent-green;
+  }
+
+  .badge-brutal-pink {
+    @apply badge-brutal bg-accent-pink;
+  }
+
+  .badge-brutal-blue {
+    @apply badge-brutal bg-accent-blue text-white;
+  }
+
+  /* Headings */
+  .heading-brutal {
+    @apply font-bold tracking-tight;
+    text-shadow: 3px 3px 0 var(--accent-yellow);
+  }
+
+  .heading-brutal-outline {
+    -webkit-text-stroke: 2px var(--text-primary);
+    color: transparent;
+  }
+
+  /* Dividers */
+  .divider-brutal {
+    @apply border-t-4 border-brutal-black my-6;
+  }
+
+  /* Tags */
+  .tag-brutal {
+    @apply inline-block px-2 py-1 text-xs font-bold uppercase tracking-wider border-2 border-brutal-black;
+  }
+}
+
+/* Custom Scrollbar - Brutalist style */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 12px;
+  height: 12px;
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(41, 46, 135, 0.1);
+  background: var(--bg-secondary);
+  border-left: 3px solid var(--border-color);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(90, 108, 244, 0.4);
-  border-radius: 4px;
+  background: var(--accent-yellow);
+  border: 3px solid var(--border-color);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(90, 108, 244, 0.6);
+  background: var(--accent-green);
 }
 
-/* Gradient text */
-.gradient-text {
-  background: linear-gradient(135deg, #5a6cf4 0%, #22c55e 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+/* Animated elements */
+@keyframes brutal-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
 }
 
-/* Glow effects */
-.glow-cardano {
-  box-shadow: 0 0 20px rgba(34, 197, 94, 0.3);
+@keyframes brutal-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px) rotate(-2deg); }
+  75% { transform: translateX(5px) rotate(2deg); }
 }
 
-.glow-midnight {
-  box-shadow: 0 0 20px rgba(90, 108, 244, 0.3);
+@keyframes brutal-pop {
+  0% { transform: scale(0.8); opacity: 0; }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); opacity: 1; }
 }
 
-/* Animation for privacy shield */
-@keyframes shield-pulse {
-  0%, 100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.8;
-    transform: scale(1.05);
-  }
+@keyframes brutal-pulse {
+  0%, 100% { box-shadow: 4px 4px 0 0 #000000; }
+  50% { box-shadow: 6px 6px 0 0 #000000; transform: translate(-2px, -2px); }
 }
 
-.shield-pulse {
-  animation: shield-pulse 2s ease-in-out infinite;
+.animate-brutal-bounce {
+  animation: brutal-bounce 0.6s ease-in-out;
 }
 
-/* Grid background pattern */
-.grid-pattern {
+.animate-brutal-shake {
+  animation: brutal-shake 0.4s ease-in-out;
+}
+
+.animate-brutal-pop {
+  animation: brutal-pop 0.3s ease-out forwards;
+}
+
+.animate-brutal-pulse {
+  animation: brutal-pulse 2s ease-in-out infinite;
+}
+
+/* Pattern backgrounds */
+.pattern-dots {
+  background-image: radial-gradient(circle, #000000 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+.pattern-grid {
   background-image:
-    linear-gradient(rgba(90, 108, 244, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(90, 108, 244, 0.03) 1px, transparent 1px);
-  background-size: 40px 40px;
+    linear-gradient(#000000 1px, transparent 1px),
+    linear-gradient(90deg, #000000 1px, transparent 1px);
+  background-size: 25px 25px;
+  opacity: 0.05;
+}
+
+.pattern-stripes {
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 10px,
+    rgba(0,0,0,0.03) 10px,
+    rgba(0,0,0,0.03) 20px
+  );
+}
+
+/* Utility: Stacked cards effect */
+.stack-brutal::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--accent-yellow);
+  border: 4px solid var(--border-color);
+  transform: translate(8px, 8px);
+  z-index: -1;
+}
+
+.stack-brutal::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--accent-pink);
+  border: 4px solid var(--border-color);
+  transform: translate(16px, 16px);
+  z-index: -2;
+}
+
+/* Loading spinner - brutalist style */
+.spinner-brutal {
+  width: 40px;
+  height: 40px;
+  border: 4px solid var(--border-color);
+  border-top-color: var(--accent-yellow);
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Focus states */
+.focus-brutal:focus {
+  outline: none;
+  box-shadow: 0 0 0 4px var(--accent-yellow);
+}
+
+/* Hover lift effect */
+.hover-lift {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.hover-lift:hover {
+  transform: translate(-4px, -4px);
+  box-shadow: 8px 8px 0 0 #000000;
+}
+
+/* Text truncate with ellipsis */
+.truncate-brutal {
+  @apply truncate max-w-full;
+}
+
+/* Responsive container */
+.container-brutal {
+  @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
 }

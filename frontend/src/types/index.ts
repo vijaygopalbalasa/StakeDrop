@@ -6,6 +6,7 @@
 export enum PoolStatus {
   Collecting = 'Collecting',
   Staking = 'Staking',
+  SelectingWinner = 'SelectingWinner',
   Distributing = 'Distributing',
   Completed = 'Completed',
 }

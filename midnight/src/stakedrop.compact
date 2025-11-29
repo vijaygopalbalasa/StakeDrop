@@ -68,22 +68,33 @@ witness generateCommitment(secret: Bytes<32>, amount: Field): Commitment {
 /**
  * Verify ownership of a commitment
  * Used for withdrawal proofs
+ *
+ * PHASE 3.3 FIX: Now requires amount parameter to properly verify
+ * commitment ownership. The commitment was generated as hash(secret || amount),
+ * so verification must also include the amount.
  */
-witness verifyOwnership(secret: Bytes<32>, commitment: Commitment): Boolean {
-  const computed = hash(secret);
+witness verifyOwnership(
+  secret: Bytes<32>,
+  amount: Field,
+  commitment: Commitment
+): Boolean {
+  // Must regenerate the commitment using the same formula
+  const computed = generateCommitment(secret, amount);
   return computed == commitment;
 }
 
 /**
  * Check if a commitment matches the winner
+ * PHASE 3.3 FIX: Now requires amount parameter for ownership verification
  */
 witness isWinner(
   secret: Bytes<32>,
+  amount: Field,
   myCommitment: Commitment,
   winnerCommitment: Commitment
 ): Boolean {
-  // First verify I own this commitment
-  const isOwner = verifyOwnership(secret, myCommitment);
+  // First verify I own this commitment (now with amount)
+  const isOwner = verifyOwnership(secret, amount, myCommitment);
   // Then check if it's the winner
   const isWinningCommitment = myCommitment == winnerCommitment;
   return isOwner && isWinningCommitment;
@@ -126,15 +137,17 @@ export circuit proveDeposit(
  * Circuit: Prove you are a registered participant
  * Used for loser withdrawals
  * Public: commitment, isRegistered
- * Private: secret
+ * Private: secret, amount
+ * PHASE 3.3 FIX: Added amount to private inputs for proper ownership verification
  */
 export circuit proveParticipant(
   secret: Bytes<32>,       // Private
+  amount: Field,           // Private (PHASE 3.3: added)
   commitment: Commitment,  // Public
   isRegistered: Boolean    // Public (from ledger)
 ): Boolean {
-  // 1. Verify I know the secret for this commitment
-  const ownsCommitment = verifyOwnership(secret, commitment);
+  // 1. Verify I know the secret and amount for this commitment
+  const ownsCommitment = verifyOwnership(secret, amount, commitment);
 
   // 2. Verify commitment is registered
   const registered = isRegistered;
@@ -145,29 +158,33 @@ export circuit proveParticipant(
 /**
  * Circuit: Prove you are the winner
  * Public: myCommitment, winnerCommitment
- * Private: secret
+ * Private: secret, amount
+ * PHASE 3.3 FIX: Added amount to private inputs for proper ownership verification
  */
 export circuit proveWinner(
   secret: Bytes<32>,            // Private
+  amount: Field,                // Private (PHASE 3.3: added)
   myCommitment: Commitment,     // Public
   winnerCommitment: Commitment  // Public (from ledger)
 ): Boolean {
-  return isWinner(secret, myCommitment, winnerCommitment);
+  return isWinner(secret, amount, myCommitment, winnerCommitment);
 }
 
 /**
  * Circuit: Prove you are a loser (participant but not winner)
  * Public: myCommitment, winnerCommitment, isRegistered
- * Private: secret
+ * Private: secret, amount
+ * PHASE 3.3 FIX: Added amount to private inputs for proper ownership verification
  */
 export circuit proveLoser(
   secret: Bytes<32>,            // Private
+  amount: Field,                // Private (PHASE 3.3: added)
   myCommitment: Commitment,     // Public
   winnerCommitment: Commitment, // Public
   isRegistered: Boolean         // Public
 ): Boolean {
-  // 1. Verify I own this commitment
-  const ownsCommitment = verifyOwnership(secret, myCommitment);
+  // 1. Verify I own this commitment (now with amount)
+  const ownsCommitment = verifyOwnership(secret, amount, myCommitment);
 
   // 2. Verify I'm registered
   const registered = isRegistered;

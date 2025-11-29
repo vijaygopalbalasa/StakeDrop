@@ -1,5 +1,8 @@
 use aiken/crypto.{VerificationKeyHash}
 
+/// Minimum deposit in lovelace (10 ADA)
+pub const min_deposit: Int = 10_000_000
+
 /// Pool status enum
 pub type PoolStatus {
   /// Pool is accepting deposits
@@ -34,6 +37,12 @@ pub type PoolDatum {
   yield_amount: Int,
   /// Winner's commitment hash (set after selection)
   winner_commitment: ByteArray,
+  /// Number of withdrawals processed (for tracking)
+  withdrawal_count: Int,
+  /// Whether winner has withdrawn
+  winner_withdrawn: Bool,
+  /// PHASE 1.3: List of commitments that have already withdrawn (replay protection)
+  withdrawn_commitments: List<ByteArray>,
 }
 
 /// Actions that can be performed on the pool
@@ -46,10 +55,10 @@ pub type PoolRedeemer {
   UpdateYield { new_yield: Int }
   /// Admin finalizes epoch with winner from Midnight ZK proof
   FinalizeEpoch { winner_commitment: ByteArray, winner_proof: ByteArray }
-  /// Winner withdraws principal + yield
-  WithdrawWinner { midnight_proof: ByteArray }
-  /// Loser withdraws principal only
-  WithdrawLoser { midnight_proof: ByteArray }
+  /// Winner withdraws principal + yield (PHASE 1.3: includes commitment for replay protection)
+  WithdrawWinner { commitment: ByteArray, midnight_proof: ByteArray }
+  /// Loser withdraws principal only (PHASE 1.3: includes commitment for replay protection)
+  WithdrawLoser { commitment: ByteArray, midnight_proof: ByteArray }
   /// Admin closes the pool after all withdrawals
   ClosePool
 }

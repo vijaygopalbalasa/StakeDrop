@@ -1,22 +1,59 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useCardanoWallet } from '@/hooks/useCardanoWallet';
-import { usePool } from '@/hooks/usePool';
-import { generateSecret, generateCommitment, createSecretFile } from '@/lib/crypto';
-import { parseAda, MIN_DEPOSIT_ADA, formatAda } from '@/lib/constants';
-import { Shield, Download, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
+import { usePool, saveDeposit } from '@/hooks/usePool';
+import { parseAda, MIN_DEPOSIT_ADA, formatAda, DEFAULT_DEPOSIT_ADA } from '@/lib/constants';
+import { getPoolScriptAddress } from '@/lib/contract';
+import {
+  generateMidnightSecret,
+  generateMidnightCommitment,
+  generateDepositProof,
+  registerCommitmentOnMidnight,
+  createMidnightSecretFile,
+  isMidnightAvailable,
+  MidnightCommitment,
+} from '@/lib/midnight';
+import { Shield, AlertCircle, CheckCircle, ExternalLink, Lock, Wallet, FileDown, Zap } from 'lucide-react';
+
+type DepositStep = 'input' | 'generating' | 'proving' | 'download' | 'confirming' | 'registering' | 'complete' | 'error';
+
+interface DepositData {
+  secret: Uint8Array;
+  commitment: MidnightCommitment;
+  amount: string;
+  epochId: number;
+  proof?: string;
+  midnightTxHash?: string;
+}
 
 export function DepositForm() {
-  const { connected, address, balance, wallet } = useCardanoWallet();
-  const { state, canDeposit } = usePool();
-  const [amount, setAmount] = useState('100');
+  const { connected, address, balance, wallet, network } = useCardanoWallet();
+  const { state, canDeposit, refresh } = usePool();
+  const [amount, setAmount] = useState(DEFAULT_DEPOSIT_ADA.toString());
   const [loading, setLoading] = useState(false);
-  const [step, setStep] = useState<'input' | 'generating' | 'download' | 'complete'>('input');
+  const [step, setStep] = useState<DepositStep>('input');
   const [secretFile, setSecretFile] = useState<{ content: string; filename: string } | null>(null);
+  const [depositData, setDepositData] = useState<DepositData | null>(null);
+  const [txHash, setTxHash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [midnightAvailable, setMidnightAvailable] = useState<boolean | null>(null);
 
-  const handleDeposit = async () => {
+  // Check Midnight availability on mount
+  useEffect(() => {
+    isMidnightAvailable().then(setMidnightAvailable);
+  }, []);
+
+  const getExplorerUrl = (hash: string) => {
+    const baseUrls: Record<string, string> = {
+      mainnet: 'https://cardanoscan.io',
+      preview: 'https://preview.cardanoscan.io',
+      preprod: 'https://preprod.cardanoscan.io',
+    };
+    return `${baseUrls[network] || baseUrls.preview}/transaction/${hash}`;
+  };
+
+  const handleGenerateCommitment = async () => {
     if (!connected || !wallet || !state) return;
 
     const depositAmount = parseAda(amount);
@@ -35,26 +72,42 @@ export function DepositForm() {
       setError(null);
       setStep('generating');
 
-      // Generate secret and commitment
-      const secret = generateSecret();
-      const commitment = await generateCommitment(secret, depositAmount);
+      // Generate cryptographic secret using Midnight-compatible method
+      const secret = generateMidnightSecret();
 
-      console.log('Generated commitment:', commitment.slice(0, 16) + '...');
+      // Generate ZK-compatible commitment
+      const commitment = await generateMidnightCommitment(secret, depositAmount);
 
-      // Create secret file for download
-      const fileContent = createSecretFile(
+      setStep('proving');
+
+      // Generate ZK proof for the deposit
+      const proof = await generateDepositProof({
+        secret,
+        amount: depositAmount,
+        commitment: commitment.value,
+      });
+
+      setDepositData({
+        secret,
+        commitment,
+        amount,
+        epochId: state.epochId,
+        proof: proof.hex,
+      });
+
+      // Create enhanced secret file with Midnight data
+      const fileContent = createMidnightSecretFile(
         secret,
         amount,
         commitment,
         state.epochId
       );
-
-      const filename = `stakedrop-secret-${Date.now()}.json`;
+      const filename = `stakedrop-midnight-secret-epoch${state.epochId}-${Date.now()}.json`;
       setSecretFile({ content: fileContent, filename });
       setStep('download');
     } catch (err) {
-      console.error('Deposit error:', err);
-      setError('Failed to generate commitment');
+      console.error('Commitment generation error:', err);
+      setError('Failed to generate ZK commitment');
       setStep('input');
     } finally {
       setLoading(false);
@@ -74,155 +127,396 @@ export function DepositForm() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    setStep('complete');
+    setStep('confirming');
+  };
+
+  const handleConfirmDeposit = async () => {
+    if (!wallet || !depositData || !address || !state) return;
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      const { Transaction } = await import('@meshsdk/core');
+      const tx = new Transaction({ initiator: wallet });
+      const lovelaceAmount = parseAda(amount).toString();
+
+      // Get the pool validator script address for the current network
+      const scriptAddress = getPoolScriptAddress(network as 'mainnet' | 'preview' | 'preprod');
+
+      // Send to script address with commitment in metadata
+      tx.sendLovelace(scriptAddress, lovelaceAmount);
+
+      // Include Midnight commitment and ZK proof reference in metadata (CIP-20)
+      tx.setMetadata(674, {
+        msg: ['StakeDrop ZK Deposit'],
+        commitment: depositData.commitment.hex.slice(0, 64),
+        epoch: state.epochId,
+        amount: lovelaceAmount,
+        zkProof: depositData.proof?.slice(0, 64) || 'simulated',
+        midnight: midnightAvailable ? 'connected' : 'simulated',
+      });
+
+      const unsignedTx = await tx.build();
+      const signedTx = await wallet.signTx(unsignedTx);
+      const txHashResult = await wallet.submitTx(signedTx);
+
+      setTxHash(txHashResult);
+
+      // Register commitment on Midnight (if available)
+      setStep('registering');
+
+      if (depositData.proof) {
+        const midnightResult = await registerCommitmentOnMidnight(
+          depositData.commitment.value,
+          {
+            proof: new Uint8Array(0),
+            publicInputs: { commitment: depositData.commitment.hex },
+            hex: depositData.proof,
+          }
+        );
+
+        if (midnightResult.success) {
+          setDepositData(prev => prev ? { ...prev, midnightTxHash: midnightResult.txHash } : null);
+        }
+      }
+
+      // Save deposit to local storage
+      saveDeposit({
+        commitment: depositData.commitment.hex,
+        amount: parseAda(amount).toString(),
+        timestamp: Date.now(),
+        epochId: state.epochId,
+      });
+
+      await refresh();
+      setStep('complete');
+    } catch (err) {
+      console.error('Transaction error:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Transaction failed';
+
+      if (errorMessage.includes('User declined') || errorMessage.includes('rejected')) {
+        setError('Transaction was cancelled');
+      } else {
+        setError(errorMessage);
+      }
+      setStep('error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const resetForm = () => {
     setStep('input');
     setSecretFile(null);
-    setAmount('100');
+    setDepositData(null);
+    setTxHash(null);
+    setAmount(DEFAULT_DEPOSIT_ADA.toString());
     setError(null);
   };
 
   if (!connected) {
     return (
-      <div className="bg-midnight-900/50 rounded-xl p-6 border border-midnight-800">
-        <div className="text-center py-8">
-          <Shield className="w-12 h-12 mx-auto text-gray-500 mb-4" />
-          <h3 className="text-lg font-medium text-gray-300 mb-2">Connect Your Wallet</h3>
-          <p className="text-gray-500">Connect your Cardano wallet to deposit</p>
+      <div className="bg-brutal-white border-4 border-brutal-black shadow-brutal p-8 text-center">
+        <div className="w-20 h-20 bg-brutal-black mx-auto mb-6 flex items-center justify-center">
+          <Wallet className="w-10 h-10 text-accent-yellow" />
         </div>
+        <h3 className="text-xl font-bold uppercase mb-2">Connect Your Wallet</h3>
+        <p className="text-gray-600">Connect your Cardano wallet to make a deposit</p>
       </div>
     );
   }
 
   if (!canDeposit) {
     return (
-      <div className="bg-midnight-900/50 rounded-xl p-6 border border-midnight-800">
-        <div className="text-center py-8">
-          <AlertCircle className="w-12 h-12 mx-auto text-yellow-500 mb-4" />
-          <h3 className="text-lg font-medium text-gray-300 mb-2">Deposits Closed</h3>
-          <p className="text-gray-500">The pool is not accepting deposits at this time</p>
+      <div className="bg-accent-yellow border-4 border-brutal-black shadow-brutal p-8 text-center">
+        <div className="w-20 h-20 bg-brutal-black mx-auto mb-6 flex items-center justify-center">
+          <Lock className="w-10 h-10 text-accent-yellow" />
         </div>
+        <h3 className="text-xl font-bold uppercase mb-2">Deposits Closed</h3>
+        <p>The pool is currently in &quot;{state?.status}&quot; status.</p>
+        <p className="text-sm mt-2">Deposits will open in the next epoch.</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-midnight-900/50 rounded-xl p-6 border border-midnight-800">
-      <div className="flex items-center gap-2 mb-6">
-        <Shield className="w-5 h-5 text-cardano-400" />
-        <h2 className="text-xl font-bold">Private Deposit</h2>
+    <div className="bg-brutal-white border-4 border-brutal-black shadow-brutal">
+      {/* Header */}
+      <div className="flex items-center justify-between p-4 border-b-4 border-brutal-black bg-accent-yellow">
+        <div className="flex items-center gap-2">
+          <Shield className="w-5 h-5" />
+          <h2 className="text-xl font-bold uppercase tracking-wider">ZK Private Deposit</h2>
+        </div>
+        {/* Midnight Status Indicator */}
+        <div className={`flex items-center gap-1.5 px-2 py-1 text-xs font-bold uppercase ${
+          midnightAvailable ? 'bg-accent-green' : 'bg-accent-purple text-white'
+        } border-2 border-brutal-black`}>
+          <Zap className="w-3 h-3" />
+          {midnightAvailable ? 'Midnight Live' : 'Demo Mode'}
+        </div>
       </div>
 
-      {step === 'input' && (
-        <>
-          <div className="mb-6">
-            <label className="block text-sm text-gray-400 mb-2">Deposit Amount (ADA)</label>
-            <div className="relative">
-              <input
-                type="number"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                min={MIN_DEPOSIT_ADA}
-                className="w-full px-4 py-3 bg-midnight-800 border border-midnight-700 rounded-lg focus:outline-none focus:border-cardano-500 text-white text-lg"
-                placeholder="100"
-              />
-              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">ADA</span>
-            </div>
-            <div className="flex justify-between mt-2 text-sm">
-              <span className="text-gray-500">Min: {MIN_DEPOSIT_ADA} ADA</span>
-              <span className="text-gray-500">Balance: {formatAda(balance)} ADA</span>
-            </div>
-          </div>
-
-          <div className="bg-midnight-800/50 rounded-lg p-4 mb-6">
-            <div className="flex items-start gap-3">
-              <Shield className="w-5 h-5 text-midnight-400 mt-0.5" />
-              <div>
-                <h4 className="font-medium text-gray-300 mb-1">Privacy Protected</h4>
-                <p className="text-sm text-gray-500">
-                  Your deposit amount and identity are hidden using Midnight&apos;s ZK proofs.
-                  You&apos;ll receive a secret file to claim your funds.
-                </p>
+      <div className="p-6">
+        {/* Step 1: Input */}
+        {step === 'input' && (
+          <>
+            <div className="mb-6">
+              <label className="block font-bold text-sm uppercase tracking-wider mb-2">
+                Deposit Amount (ADA)
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  min={MIN_DEPOSIT_ADA}
+                  className="input-brutal text-2xl font-bold"
+                  placeholder={DEFAULT_DEPOSIT_ADA.toString()}
+                />
+                <span className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-gray-500">
+                  ADA
+                </span>
+              </div>
+              <div className="flex justify-between mt-2 text-sm">
+                <span>Min: {MIN_DEPOSIT_ADA} ADA</span>
+                <span>Balance: {formatAda(balance)} ADA</span>
               </div>
             </div>
-          </div>
 
-          {error && (
-            <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 mb-4 flex items-center gap-2 text-red-400">
-              <AlertCircle className="w-5 h-5" />
-              <span>{error}</span>
+            {/* Midnight ZK Info Box */}
+            <div className="bg-accent-purple text-white border-4 border-brutal-black p-4 mb-6">
+              <div className="flex items-start gap-3">
+                <Zap className="w-6 h-6 flex-shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="font-bold uppercase mb-1">Midnight ZK Privacy</h4>
+                  <p className="text-sm opacity-90">
+                    Your deposit uses Zero-Knowledge proofs powered by Midnight Network.
+                    Amount and identity are cryptographically hidden - only you can prove ownership.
+                  </p>
+                </div>
+              </div>
             </div>
-          )}
 
-          <button
-            onClick={handleDeposit}
-            disabled={loading || !amount}
-            className="w-full py-3 bg-cardano-600 hover:bg-cardano-500 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-medium transition-colors"
-          >
-            Generate Commitment
-          </button>
-        </>
-      )}
+            {error && (
+              <div className="bg-accent-pink border-4 border-brutal-black p-4 mb-6 flex items-center gap-3">
+                <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                <span className="font-bold">{error}</span>
+              </div>
+            )}
 
-      {step === 'generating' && (
-        <div className="text-center py-8">
-          <Loader2 className="w-12 h-12 mx-auto text-cardano-400 animate-spin mb-4" />
-          <h3 className="text-lg font-medium text-gray-300 mb-2">Generating ZK Commitment...</h3>
-          <p className="text-gray-500">Creating your private deposit proof</p>
-        </div>
-      )}
-
-      {step === 'download' && (
-        <div className="text-center py-4">
-          <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4 mb-6">
-            <AlertCircle className="w-8 h-8 mx-auto text-yellow-500 mb-3" />
-            <h3 className="text-lg font-medium text-yellow-400 mb-2">Important: Save Your Secret!</h3>
-            <p className="text-sm text-gray-400">
-              Download and save this file securely. You&apos;ll need it to withdraw your funds.
-              <strong className="text-yellow-400"> If you lose this file, you cannot recover your deposit.</strong>
-            </p>
-          </div>
-
-          <button
-            onClick={handleDownloadSecret}
-            className="w-full py-3 bg-cardano-600 hover:bg-cardano-500 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
-          >
-            <Download className="w-5 h-5" />
-            Download Secret File
-          </button>
-        </div>
-      )}
-
-      {step === 'complete' && (
-        <div className="text-center py-4">
-          <CheckCircle className="w-12 h-12 mx-auto text-green-500 mb-4" />
-          <h3 className="text-lg font-medium text-gray-300 mb-2">Secret File Downloaded!</h3>
-          <p className="text-gray-500 mb-6">
-            Your commitment has been registered. Complete the deposit by confirming the transaction in your wallet.
-          </p>
-
-          <div className="space-y-3">
             <button
-              onClick={() => {
-                // TODO: Submit actual transaction
-                alert('Demo: Transaction would be submitted here');
-              }}
-              className="w-full py-3 bg-cardano-600 hover:bg-cardano-500 rounded-lg font-medium transition-colors"
+              onClick={handleGenerateCommitment}
+              disabled={loading || !amount || parseFloat(amount) < MIN_DEPOSIT_ADA}
+              className="w-full py-4 bg-accent-green border-4 border-brutal-black shadow-brutal hover:shadow-brutal-md hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all font-bold text-lg uppercase tracking-wider disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-x-0 disabled:hover:translate-y-0 disabled:hover:shadow-brutal flex items-center justify-center gap-2"
             >
-              Confirm Deposit ({amount} ADA)
+              <Zap className="w-5 h-5" />
+              Generate ZK Commitment
+            </button>
+          </>
+        )}
+
+        {/* Step 2: Generating Secret */}
+        {step === 'generating' && (
+          <div className="text-center py-12">
+            <div className="spinner-brutal w-16 h-16 mx-auto mb-6" />
+            <h3 className="text-xl font-bold uppercase mb-2">Generating Cryptographic Secret...</h3>
+            <p className="text-gray-600">Creating your private key material</p>
+          </div>
+        )}
+
+        {/* Step 2b: Generating ZK Proof */}
+        {step === 'proving' && (
+          <div className="text-center py-12">
+            <div className="spinner-brutal w-16 h-16 mx-auto mb-6" />
+            <h3 className="text-xl font-bold uppercase mb-2">Generating ZK Proof...</h3>
+            <p className="text-gray-600">Computing zero-knowledge proof via Midnight</p>
+            <div className="mt-4 flex items-center justify-center gap-2 text-sm text-accent-purple">
+              <Zap className="w-4 h-4" />
+              <span>Powered by Midnight Network</span>
+            </div>
+          </div>
+        )}
+
+        {/* Step 3: Download Secret */}
+        {step === 'download' && (
+          <div className="text-center py-6">
+            <div className="bg-accent-pink border-4 border-brutal-black p-6 mb-6">
+              <AlertCircle className="w-12 h-12 mx-auto mb-4" />
+              <h3 className="text-xl font-bold uppercase mb-2">Save Your ZK Secret!</h3>
+              <p className="text-sm">
+                This file contains your secret key for generating withdrawal proofs.
+                <strong className="block mt-2">If you lose this file, you cannot prove ownership and recover your deposit.</strong>
+              </p>
+            </div>
+
+            <button
+              onClick={handleDownloadSecret}
+              className="w-full py-4 bg-accent-yellow border-4 border-brutal-black shadow-brutal hover:shadow-brutal-md hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all font-bold text-lg uppercase tracking-wider flex items-center justify-center gap-3"
+            >
+              <FileDown className="w-6 h-6" />
+              Download Secret File
+            </button>
+
+            <button
+              onClick={() => setStep('input')}
+              className="w-full mt-4 py-3 font-bold uppercase text-gray-600 hover:text-brutal-black transition-colors"
+            >
+              Go Back
+            </button>
+          </div>
+        )}
+
+        {/* Step 4: Confirm Transaction */}
+        {step === 'confirming' && (
+          <div className="text-center py-6">
+            <div className="w-20 h-20 bg-accent-green border-4 border-brutal-black mx-auto mb-6 flex items-center justify-center">
+              <CheckCircle className="w-10 h-10" />
+            </div>
+            <h3 className="text-xl font-bold uppercase mb-2">Secret File Secured!</h3>
+            <p className="text-gray-600 mb-6">Now confirm the deposit transaction in your wallet.</p>
+
+            <div className="bg-brutal-cream border-4 border-brutal-black p-4 mb-6 text-left">
+              <div className="flex justify-between mb-3 pb-3 border-b-2 border-brutal-black">
+                <span className="font-bold uppercase text-sm">Amount</span>
+                <span className="font-bold text-xl">{amount} ADA</span>
+              </div>
+              <div className="flex justify-between mb-3 pb-3 border-b-2 border-brutal-black">
+                <span className="font-bold uppercase text-sm">Epoch</span>
+                <span className="font-mono">#{state?.epochId}</span>
+              </div>
+              <div className="flex justify-between mb-3 pb-3 border-b-2 border-brutal-black">
+                <span className="font-bold uppercase text-sm">ZK Commitment</span>
+                <span className="font-mono text-xs truncate max-w-[150px]">
+                  {depositData?.commitment.hex.slice(0, 16)}...
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="font-bold uppercase text-sm">Privacy</span>
+                <span className="flex items-center gap-1 text-accent-purple font-bold text-sm">
+                  <Zap className="w-4 h-4" />
+                  ZK Protected
+                </span>
+              </div>
+            </div>
+
+            {error && (
+              <div className="bg-accent-pink border-4 border-brutal-black p-4 mb-6 flex items-center gap-3">
+                <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                <span className="font-bold">{error}</span>
+              </div>
+            )}
+
+            <button
+              onClick={handleConfirmDeposit}
+              disabled={loading}
+              className="w-full py-4 bg-accent-blue text-white border-4 border-brutal-black shadow-brutal hover:shadow-brutal-md hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all font-bold text-lg uppercase tracking-wider flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? (
+                <>
+                  <div className="spinner-brutal w-5 h-5 border-white border-t-transparent" />
+                  Signing Transaction...
+                </>
+              ) : (
+                <>Confirm Deposit ({amount} ADA)</>
+              )}
             </button>
 
             <button
               onClick={resetForm}
-              className="w-full py-2 text-gray-400 hover:text-white transition-colors"
+              disabled={loading}
+              className="w-full mt-4 py-3 font-bold uppercase text-gray-600 hover:text-brutal-black transition-colors disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {/* Step 4b: Registering on Midnight */}
+        {step === 'registering' && (
+          <div className="text-center py-12">
+            <div className="spinner-brutal w-16 h-16 mx-auto mb-6" />
+            <h3 className="text-xl font-bold uppercase mb-2">Registering on Midnight...</h3>
+            <p className="text-gray-600">Recording your commitment on the privacy layer</p>
+            <div className="mt-4 flex items-center justify-center gap-2 text-sm text-accent-purple">
+              <Zap className="w-4 h-4" />
+              <span>Cross-chain synchronization in progress</span>
+            </div>
+          </div>
+        )}
+
+        {/* Step 5: Complete */}
+        {step === 'complete' && txHash && (
+          <div className="text-center py-6">
+            <div className="w-24 h-24 bg-accent-green border-4 border-brutal-black mx-auto mb-6 flex items-center justify-center animate-brutal-bounce">
+              <CheckCircle className="w-12 h-12" />
+            </div>
+            <h3 className="text-2xl font-bold uppercase mb-2">ZK Deposit Complete!</h3>
+            <p className="text-gray-600 mb-6">
+              Your {amount} ADA deposit is now privacy-protected for Epoch #{state?.epochId}
+            </p>
+
+            {/* Cardano Transaction */}
+            <div className="bg-accent-green border-4 border-brutal-black p-4 mb-4">
+              <p className="font-bold text-sm uppercase mb-2">Cardano Transaction</p>
+              <p className="font-mono text-xs break-all">{txHash}</p>
+            </div>
+
+            {/* Midnight Registration */}
+            {depositData?.midnightTxHash && (
+              <div className="bg-accent-purple text-white border-4 border-brutal-black p-4 mb-4">
+                <p className="font-bold text-sm uppercase mb-2 flex items-center gap-1 justify-center">
+                  <Zap className="w-4 h-4" /> Midnight Registration
+                </p>
+                <p className="font-mono text-xs break-all">{depositData.midnightTxHash}</p>
+              </div>
+            )}
+
+            <a
+              href={getExplorerUrl(txHash)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-accent-blue text-white border-4 border-brutal-black shadow-brutal hover:shadow-brutal-md transition-all font-bold uppercase mb-6"
+            >
+              <ExternalLink className="w-5 h-5" />
+              View on Explorer
+            </a>
+
+            <button
+              onClick={resetForm}
+              className="w-full py-3 bg-brutal-cream border-4 border-brutal-black hover:bg-brutal-white transition-colors font-bold uppercase"
             >
               Make Another Deposit
             </button>
           </div>
-        </div>
-      )}
+        )}
+
+        {/* Error State */}
+        {step === 'error' && (
+          <div className="text-center py-6">
+            <div className="w-24 h-24 bg-accent-pink border-4 border-brutal-black mx-auto mb-6 flex items-center justify-center animate-brutal-shake">
+              <AlertCircle className="w-12 h-12" />
+            </div>
+            <h3 className="text-2xl font-bold uppercase mb-2">Deposit Failed</h3>
+            <p className="text-gray-600 mb-6">{error || 'An error occurred'}</p>
+
+            <div className="space-y-3">
+              <button
+                onClick={() => setStep('confirming')}
+                className="w-full py-4 bg-accent-yellow border-4 border-brutal-black shadow-brutal hover:shadow-brutal-md transition-all font-bold uppercase"
+              >
+                Try Again
+              </button>
+              <button
+                onClick={resetForm}
+                className="w-full py-3 font-bold uppercase text-gray-600 hover:text-brutal-black transition-colors"
+              >
+                Start Over
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
