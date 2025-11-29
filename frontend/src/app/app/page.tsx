@@ -113,7 +113,7 @@ export default function AppPage() {
                   <h3 className="font-bold uppercase">Zero Knowledge</h3>
                 </div>
                 <p className="text-sm">
-                  Your deposit amount and identity stay private. Only you can prove ownership with your secret file.
+                  Your deposit amount and identity stay private. Sign with your wallet to prove ownership - no files needed.
                 </p>
               </div>
             </div>
@@ -161,7 +161,7 @@ export default function AppPage() {
                 <ul className="space-y-1 text-sm text-gray-700">
                   <li className="flex items-start gap-2">
                     <span className="w-2 h-2 bg-brutal-black mt-1.5 flex-shrink-0" />
-                    Save your secret file securely - you need it to withdraw
+                    Your wallet is your key - use the same wallet to withdraw
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="w-2 h-2 bg-brutal-black mt-1.5 flex-shrink-0" />

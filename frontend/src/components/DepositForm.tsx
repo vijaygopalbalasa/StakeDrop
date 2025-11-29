@@ -265,20 +265,6 @@ export function DepositForm() {
               </div>
             </div>
 
-            {/* Wallet-Derived Secret Info Box */}
-            <div className="bg-accent-green border-4 border-brutal-black p-4 mb-6">
-              <div className="flex items-start gap-3">
-                <Fingerprint className="w-6 h-6 flex-shrink-0 mt-0.5" />
-                <div>
-                  <h4 className="font-bold uppercase mb-1">No File Download Needed!</h4>
-                  <p className="text-sm">
-                    Your secret is derived from your wallet signature. Just sign a message
-                    and your wallet becomes your key to withdraw. Simple and secure.
-                  </p>
-                </div>
-              </div>
-            </div>
-
             {/* Midnight ZK Info Box */}
             <div className="bg-accent-purple text-white border-4 border-brutal-black p-4 mb-6">
               <div className="flex items-start gap-3">
