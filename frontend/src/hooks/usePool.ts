@@ -8,19 +8,26 @@ import {
   isBlockfrostConfigured,
   EpochInfo,
   getAddressUtxos,
-  lovelaceToAda,
 } from '@/lib/blockfrost';
-import { getPoolScriptAddress, POOL_VALIDATOR_HASH } from '@/lib/contract';
+import { getPoolScriptAddress } from '@/lib/contract';
 import { NETWORK } from '@/lib/constants';
 
-// Storage key for pool deposits (localStorage backup for demo)
+// Storage keys for pool state (localStorage for demo)
 const POOL_STORAGE_KEY = 'stakedrop_pool_deposits';
+const POOL_STATUS_KEY = 'stakedrop_pool_status';
 
 interface StoredDeposit {
   commitment: string;
   amount: string; // lovelace as string for JSON serialization
   timestamp: number;
   epochId: number;
+}
+
+interface StoredPoolStatus {
+  status: PoolStatus;
+  epochId: number;
+  winnerCommitment: string | null;
+  updatedAt: number;
 }
 
 // Get stored deposits from localStorage
@@ -42,6 +49,36 @@ export function saveDeposit(deposit: StoredDeposit): void {
   localStorage.setItem(POOL_STORAGE_KEY, JSON.stringify(deposits));
 }
 
+// Get stored pool status
+function getStoredPoolStatus(): StoredPoolStatus | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const stored = localStorage.getItem(POOL_STATUS_KEY);
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Save pool status (admin control)
+export function savePoolStatus(status: PoolStatus, epochId: number, winnerCommitment?: string): void {
+  if (typeof window === 'undefined') return;
+  const poolStatus: StoredPoolStatus = {
+    status,
+    epochId,
+    winnerCommitment: winnerCommitment || null,
+    updatedAt: Date.now(),
+  };
+  localStorage.setItem(POOL_STATUS_KEY, JSON.stringify(poolStatus));
+}
+
+// Clear pool data (for reset)
+export function clearPoolData(): void {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(POOL_STORAGE_KEY);
+  localStorage.removeItem(POOL_STATUS_KEY);
+}
+
 // Calculate pool state from stored deposits
 function calculatePoolStateFromDeposits(
   deposits: StoredDeposit[],
@@ -61,8 +98,7 @@ function calculatePoolStateFromDeposits(
 }
 
 // Estimate yield based on epoch and stake (simplified calculation)
-// Real yield would come from stake pool rewards
-function estimateYield(totalDeposited: bigint, epochInfo: EpochInfo): bigint {
+function estimateYield(totalDeposited: bigint): bigint {
   // Approximate 4.5% APY for Cardano staking
   // Epoch is ~5 days, so per-epoch yield is approximately:
   // 4.5% / 73 epochs per year ≈ 0.0616% per epoch
@@ -88,7 +124,7 @@ export function usePool() {
 
       // Check if Blockfrost is configured
       if (!isBlockfrostConfigured()) {
-        setError('Blockfrost API not configured. Please set NEXT_PUBLIC_BLOCKFROST_PROJECT_ID');
+        setError('Blockfrost API not configured. Please set NEXT_PUBLIC_BLOCKFROST_API_KEY');
         setLoading(false);
         return;
       }
@@ -131,28 +167,25 @@ export function usePool() {
         participantCount = localState.participantCount;
       }
 
-      // Estimate yield based on pool size
-      const yieldAmount = estimateYield(totalDeposited, currentEpoch);
-
-      // Determine pool status based on epoch timing
-      const timeRemaining = getEpochTimeRemaining(currentEpoch);
+      // Get admin-controlled pool status from localStorage
+      // Default to Collecting if no status is stored
+      const storedStatus = getStoredPoolStatus();
       let status: PoolStatus;
+      let winnerCommitment: string | null = null;
 
-      if (timeRemaining.totalSeconds > 3 * 24 * 60 * 60) {
-        // More than 3 days left - collecting deposits
-        status = PoolStatus.Collecting;
-      } else if (timeRemaining.totalSeconds > 1 * 24 * 60 * 60) {
-        // 1-3 days left - staking in progress
-        status = PoolStatus.Staking;
-      } else if (timeRemaining.totalSeconds > 0) {
-        // Less than 1 day - selecting winner
-        status = PoolStatus.SelectingWinner;
+      if (storedStatus && storedStatus.epochId === currentEpoch.epoch) {
+        // Use admin-set status for current epoch
+        status = storedStatus.status;
+        winnerCommitment = storedStatus.winnerCommitment;
       } else {
-        // Epoch ended - distributing
-        status = PoolStatus.Distributing;
+        // New epoch or no status - default to Collecting
+        status = PoolStatus.Collecting;
       }
 
-      // Build pool state from real blockchain data
+      // Estimate yield based on pool size
+      const yieldAmount = estimateYield(totalDeposited);
+
+      // Build pool state
       const poolState: PoolState = {
         epochId: currentEpoch.epoch,
         status,
@@ -160,7 +193,7 @@ export function usePool() {
         participantCount,
         yieldAmount,
         epochEnd: new Date(currentEpoch.end_time * 1000),
-        winnerCommitment: null, // Would come from Midnight contract
+        winnerCommitment,
       };
 
       setState(poolState);
@@ -196,10 +229,10 @@ export function usePool() {
     };
   }, [epochInfo]);
 
-  // Check if pool is accepting deposits
+  // Check if pool is accepting deposits (only in Collecting status)
   const canDeposit = state?.status === PoolStatus.Collecting;
 
-  // Check if withdrawals are open
+  // Check if withdrawals are open (only in Distributing status)
   const canWithdraw = state?.status === PoolStatus.Distributing;
 
   return {
