@@ -6,13 +6,16 @@
   "workspaces": [
     "frontend",
     "bridge",
-    "midnight"
+    "midnight",
+    "scripts"
   ],
   "scripts": {
     "dev": "npm run dev --workspace=frontend",
     "build": "npm run build --workspace=frontend",
     "bridge": "npm run start --workspace=bridge",
-    "compile:midnight": "npm run compile --workspace=midnight",
+    "demo": "cd scripts && npx ts-node demo.ts",
+    "setup": "bash scripts/setup.sh",
+    "install:all": "npm install && cd frontend && npm install && cd ../bridge && npm install",
     "compile:cardano": "cd contracts/cardano && aiken build"
   },
   "keywords": [
@@ -24,5 +27,9 @@
     "staking"
   ],
   "author": "StakeDrop Team",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.0"
+  }
 }

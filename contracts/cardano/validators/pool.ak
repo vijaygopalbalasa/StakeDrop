@@ -1,5 +1,6 @@
 use aiken/collection/list
-use aiken/crypto.{VerificationKeyHash, Blake2b_256, Hash}
+use aiken/crypto.{VerificationKeyHash}
+use aiken/primitive/bytearray
 use cardano/transaction.{Transaction, OutputReference, Output, InlineDatum}
 use stakedrop/types.{
   PoolDatum,
@@ -47,12 +48,11 @@ fn get_datum(output: Output) -> Option<PoolDatum> {
 }
 
 /// Verify ZK proof from Midnight (simplified - real implementation would verify cryptographic proof)
-fn verify_midnight_proof(proof: ByteArray, commitment: ByteArray, midnight_root: ByteArray) -> Bool {
+fn verify_midnight_proof(proof: ByteArray, commitment: ByteArray, _midnight_root: ByteArray) -> Bool {
   // In production, this would verify a ZK-SNARK proof
   // For hackathon, we verify the proof is non-empty and matches expected format
   // The actual verification happens off-chain via Midnight
-  builtin.length_of_bytearray(proof) > 0 &&
-  builtin.length_of_bytearray(commitment) > 0
+  bytearray.length(proof) > 0 && bytearray.length(commitment) > 0
 }
 
 /// Main pool validator
@@ -77,16 +77,16 @@ validator pool {
 
         // Verify new datum updates correctly
         let valid_update = and {
-          new_datum.admin == pool_datum.admin,
-          new_datum.epoch_id == pool_datum.epoch_id,
-          new_datum.epoch_end == pool_datum.epoch_end,
-          new_datum.total_deposited == pool_datum.total_deposited + amount,
-          new_datum.participant_count == pool_datum.participant_count + 1,
-          new_datum.status == Collecting,
-        }
+            new_datum.admin == pool_datum.admin,
+            new_datum.epoch_id == pool_datum.epoch_id,
+            new_datum.epoch_end == pool_datum.epoch_end,
+            new_datum.total_deposited == pool_datum.total_deposited + amount,
+            new_datum.participant_count == pool_datum.participant_count + 1,
+            new_datum.status == Collecting,
+          }
 
         // Verify commitment is valid (non-empty)
-        let valid_commitment = builtin.length_of_bytearray(commitment) == 32
+        let valid_commitment = bytearray.length(commitment) == 32
 
         valid_update? && valid_commitment?
       }
@@ -105,12 +105,12 @@ validator pool {
 
         // Status must change to Staking
         let valid_transition = and {
-          new_datum.admin == pool_datum.admin,
-          new_datum.epoch_id == pool_datum.epoch_id,
-          new_datum.total_deposited == pool_datum.total_deposited,
-          new_datum.participant_count == pool_datum.participant_count,
-          new_datum.status == Staking,
-        }
+            new_datum.admin == pool_datum.admin,
+            new_datum.epoch_id == pool_datum.epoch_id,
+            new_datum.total_deposited == pool_datum.total_deposited,
+            new_datum.participant_count == pool_datum.participant_count,
+            new_datum.status == Staking,
+          }
 
         valid_transition?
       }
@@ -129,11 +129,11 @@ validator pool {
 
         // Yield must increase (or stay same, rewards might not be ready)
         let valid_update = and {
-          new_datum.admin == pool_datum.admin,
-          new_datum.yield_amount >= pool_datum.yield_amount,
-          new_datum.yield_amount == new_yield,
-          new_datum.status == Staking,
-        }
+            new_datum.admin == pool_datum.admin,
+            new_datum.yield_amount >= pool_datum.yield_amount,
+            new_datum.yield_amount == new_yield,
+            new_datum.status == Staking,
+          }
 
         valid_update?
       }
@@ -155,10 +155,10 @@ validator pool {
 
         // Status must change to Distributing with winner set
         let valid_finalization = and {
-          new_datum.admin == pool_datum.admin,
-          new_datum.status == Distributing,
-          new_datum.winner_commitment == winner_commitment,
-        }
+            new_datum.admin == pool_datum.admin,
+            new_datum.status == Distributing,
+            new_datum.winner_commitment == winner_commitment,
+          }
 
         valid_finalization?
       }
@@ -183,7 +183,7 @@ validator pool {
 
         // Verify the Midnight proof that caller deposited (but is not winner)
         // The proof should prove: "I have a valid commitment that is NOT the winner"
-        let proof_valid = builtin.length_of_bytearray(midnight_proof) > 0
+        let proof_valid = bytearray.length(midnight_proof) > 0
 
         // Loser gets exactly their deposit back (no yield)
         proof_valid?
@@ -196,9 +196,9 @@ validator pool {
 
         // Pool should be in Distributing or Completed status
         let valid_status = or {
-          pool_datum.status == Distributing,
-          pool_datum.status == Completed,
-        }
+            pool_datum.status == Distributing,
+            pool_datum.status == Completed,
+          }
 
         valid_status?
       }
@@ -237,7 +237,7 @@ test admin_can_initiate_staking() {
     admin: admin_vkh,
     epoch_id: 1,
     epoch_end: 1700000000000,
-    total_deposited: 300000000, // 300 ADA
+    total_deposited: 300000000,
     participant_count: 3,
     midnight_root: #"abcd1234",
     status: Collecting,
@@ -262,7 +262,7 @@ test winner_withdrawal_requires_distributing_status() {
     midnight_root: #"abcd1234",
     status: Distributing,
     stake_pool_id: #"pool1abc",
-    yield_amount: 5000000, // 5 ADA yield
+    yield_amount: 5000000,
     winner_commitment: #"winner123",
   }
 
