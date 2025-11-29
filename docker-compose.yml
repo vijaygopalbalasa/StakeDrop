@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  # Midnight Proof Server
+  # Generates ZK proofs for privacy-preserving transactions
+  midnight-proof-server:
+    image: midnight/proof-server:latest
+    container_name: stakedrop-proof-server
+    ports:
+      - "6300:6300"
+    environment:
+      - MIDNIGHT_NETWORK=testnet
+      - LOG_LEVEL=info
+    volumes:
+      - proof-cache:/app/cache
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6300/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Bridge Service
+  # Coordinates between Midnight and Cardano
+  bridge:
+    build:
+      context: ./bridge
+      dockerfile: Dockerfile
+    container_name: stakedrop-bridge
+    depends_on:
+      - midnight-proof-server
+    environment:
+      - CARDANO_NETWORK=${CARDANO_NETWORK:-preview}
+      - BLOCKFROST_API_KEY=${BLOCKFROST_API_KEY}
+      - MIDNIGHT_NETWORK_URL=http://midnight-proof-server:6300
+      - ADMIN_MNEMONIC=${ADMIN_MNEMONIC}
+    volumes:
+      - ./bridge/src:/app/src
+    restart: unless-stopped
+
+  # Frontend (Development)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: stakedrop-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_NETWORK=${CARDANO_NETWORK:-preview}
+      - NEXT_PUBLIC_BLOCKFROST_API_KEY=${BLOCKFROST_API_KEY}
+      - NEXT_PUBLIC_MIDNIGHT_NETWORK_URL=http://localhost:6300
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    depends_on:
+      - midnight-proof-server
+
+volumes:
+  proof-cache:
+    driver: local
+
+networks:
+  default:
+    name: stakedrop-network

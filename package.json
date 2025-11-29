@@ -1,0 +1,28 @@
+{
+  "name": "stakedrop",
+  "version": "1.0.0",
+  "description": "No-loss lottery protocol on Cardano + Midnight Network",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "bridge",
+    "midnight"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=frontend",
+    "build": "npm run build --workspace=frontend",
+    "bridge": "npm run start --workspace=bridge",
+    "compile:midnight": "npm run compile --workspace=midnight",
+    "compile:cardano": "cd contracts/cardano && aiken build"
+  },
+  "keywords": [
+    "cardano",
+    "midnight",
+    "zk",
+    "no-loss-lottery",
+    "defi",
+    "staking"
+  ],
+  "author": "StakeDrop Team",
+  "license": "MIT"
+}

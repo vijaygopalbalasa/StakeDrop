@@ -1,0 +1,26 @@
+{
+  "name": "@stakedrop/midnight",
+  "version": "1.0.0",
+  "description": "StakeDrop Midnight smart contracts - ZK privacy layer",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "compile": "npx compactc compile src/stakedrop.compact --output src/managed",
+    "build": "npm run compile && tsc",
+    "clean": "rm -rf dist src/managed"
+  },
+  "dependencies": {
+    "@midnight-ntwrk/midnight-js-contracts": "^1.0.0",
+    "@midnight-ntwrk/compact-runtime": "^1.0.0"
+  },
+  "devDependencies": {
+    "@midnight-ntwrk/compact-cli": "^0.26.0",
+    "typescript": "^5.3.0"
+  },
+  "keywords": [
+    "midnight",
+    "zk",
+    "privacy",
+    "lottery"
+  ]
+}

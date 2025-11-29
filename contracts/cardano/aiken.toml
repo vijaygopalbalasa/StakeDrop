@@ -1,0 +1,14 @@
+name = "stakedrop/pool"
+version = "0.1.0"
+license = "MIT"
+description = "StakeDrop - No-loss lottery pool validator for Cardano"
+
+[repository]
+user = "vijaygopalbalasa"
+project = "StakeDrop"
+platform = "github"
+
+[[dependencies]]
+name = "aiken-lang/stdlib"
+version = "v2"
+source = "github"

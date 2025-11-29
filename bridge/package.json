@@ -1,0 +1,26 @@
+{
+  "name": "@stakedrop/bridge",
+  "version": "1.0.0",
+  "description": "StakeDrop cross-chain bridge - Midnight <-> Cardano coordination",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "stake": "ts-node src/commands/stake.ts",
+    "finalize": "ts-node src/commands/finalize.ts",
+    "status": "ts-node src/commands/status.ts"
+  },
+  "dependencies": {
+    "@meshsdk/core": "^1.6.0",
+    "@midnight-ntwrk/midnight-js-contracts": "^1.0.0",
+    "dotenv": "^16.3.1",
+    "commander": "^11.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.0"
+  }
+}

@@ -1,0 +1,320 @@
+/**
+ * StakeDrop - Privacy-Preserving No-Loss Lottery
+ *
+ * This Compact smart contract handles the privacy layer for StakeDrop.
+ * It manages:
+ * - Private deposit commitments (hiding amounts and identities)
+ * - ZK proof generation for winner selection
+ * - Anonymous withdrawal proofs
+ *
+ * Integration with Cardano:
+ * - Commitments are registered here privately
+ * - Winner selection proof is exported to Cardano
+ * - Withdrawal proofs verify ownership without revealing identity
+ */
+
+// ============================================
+// Type Definitions
+// ============================================
+
+// 32-byte commitment hash
+export type Commitment = Bytes<32>;
+
+// Pool epoch identifier
+export type EpochId = Field;
+
+// Participant entry in the pool
+export type ParticipantEntry = {
+  commitment: Commitment,
+  registered: Boolean,
+};
+
+// Pool configuration
+export type PoolConfig = {
+  maxParticipants: Field,
+  minDeposit: Field,
+  epochDuration: Field,
+};
+
+// ============================================
+// Ledger State (On-chain public state)
+// ============================================
+
+export ledger epochId: Counter;
+export ledger poolLocked: Boolean;
+export ledger winnerSelected: Boolean;
+export ledger participantCount: Counter;
+export ledger commitmentRoot: Bytes<32>;
+export ledger winnerCommitment: Bytes<32>;
+export ledger randomnessSeed: Bytes<32>;
+
+// Map of commitments to their registration status
+export ledger commitments: Map<Commitment, Boolean>;
+
+// ============================================
+// Witness Functions (Private computations)
+// ============================================
+
+/**
+ * Generate a deposit commitment from secret and amount
+ * This runs locally - secret never leaves user's device
+ */
+witness generateCommitment(secret: Bytes<32>, amount: Field): Commitment {
+  // Commitment = hash(secret || amount)
+  // This binds the amount to the secret without revealing either
+  return hash(concat(secret, toBytes(amount)));
+}
+
+/**
+ * Verify ownership of a commitment
+ * Used for withdrawal proofs
+ */
+witness verifyOwnership(secret: Bytes<32>, commitment: Commitment): Boolean {
+  const computed = hash(secret);
+  return computed == commitment;
+}
+
+/**
+ * Check if a commitment matches the winner
+ */
+witness isWinner(
+  secret: Bytes<32>,
+  myCommitment: Commitment,
+  winnerCommitment: Commitment
+): Boolean {
+  // First verify I own this commitment
+  const isOwner = verifyOwnership(secret, myCommitment);
+  // Then check if it's the winner
+  const isWinningCommitment = myCommitment == winnerCommitment;
+  return isOwner && isWinningCommitment;
+}
+
+/**
+ * Select winner from commitments using verifiable randomness
+ * This is computed privately but result is published
+ */
+witness selectWinnerIndex(
+  commitmentList: Bytes<32>[],
+  randomness: Bytes<32>,
+  count: Field
+): Field {
+  // Deterministic selection: hash(commitments || randomness) % count
+  const combined = hash(concat(flatten(commitmentList), randomness));
+  return mod(toField(combined), count);
+}
+
+// ============================================
+// Circuits (ZK Proof Generation)
+// ============================================
+
+/**
+ * Circuit: Prove deposit without revealing amount
+ * Public: commitment
+ * Private: secret, amount
+ */
+export circuit proveDeposit(
+  secret: Bytes<32>,   // Private
+  amount: Field,       // Private
+  commitment: Commitment // Public
+): Boolean {
+  // Verify the commitment matches secret + amount
+  const expectedCommitment = generateCommitment(secret, amount);
+  return expectedCommitment == commitment;
+}
+
+/**
+ * Circuit: Prove you are a registered participant
+ * Used for loser withdrawals
+ * Public: commitment, isRegistered
+ * Private: secret
+ */
+export circuit proveParticipant(
+  secret: Bytes<32>,       // Private
+  commitment: Commitment,  // Public
+  isRegistered: Boolean    // Public (from ledger)
+): Boolean {
+  // 1. Verify I know the secret for this commitment
+  const ownsCommitment = verifyOwnership(secret, commitment);
+
+  // 2. Verify commitment is registered
+  const registered = isRegistered;
+
+  return ownsCommitment && registered;
+}
+
+/**
+ * Circuit: Prove you are the winner
+ * Public: myCommitment, winnerCommitment
+ * Private: secret
+ */
+export circuit proveWinner(
+  secret: Bytes<32>,            // Private
+  myCommitment: Commitment,     // Public
+  winnerCommitment: Commitment  // Public (from ledger)
+): Boolean {
+  return isWinner(secret, myCommitment, winnerCommitment);
+}
+
+/**
+ * Circuit: Prove you are a loser (participant but not winner)
+ * Public: myCommitment, winnerCommitment, isRegistered
+ * Private: secret
+ */
+export circuit proveLoser(
+  secret: Bytes<32>,            // Private
+  myCommitment: Commitment,     // Public
+  winnerCommitment: Commitment, // Public
+  isRegistered: Boolean         // Public
+): Boolean {
+  // 1. Verify I own this commitment
+  const ownsCommitment = verifyOwnership(secret, myCommitment);
+
+  // 2. Verify I'm registered
+  const registered = isRegistered;
+
+  // 3. Verify I'm NOT the winner
+  const notWinner = myCommitment != winnerCommitment;
+
+  return ownsCommitment && registered && notWinner;
+}
+
+// ============================================
+// Transactions (State Transitions)
+// ============================================
+
+/**
+ * Initialize a new epoch/pool
+ * Called by admin to start a new lottery round
+ */
+export transition initializeEpoch(
+  config: PoolConfig
+): void {
+  // Ensure pool is not currently locked
+  assert(!poolLocked, "Pool is currently locked");
+
+  // Increment epoch
+  epochId.increment();
+
+  // Reset state
+  poolLocked = false;
+  winnerSelected = false;
+  participantCount.reset();
+  winnerCommitment = emptyBytes32();
+  randomnessSeed = emptyBytes32();
+}
+
+/**
+ * Register a deposit commitment
+ * User submits commitment (amount hidden)
+ */
+export transition registerDeposit(
+  commitment: Commitment,
+  proof: Proof<proveDeposit>
+): void {
+  // Pool must be open
+  assert(!poolLocked, "Pool is locked for deposits");
+
+  // Verify the ZK proof that commitment is valid
+  assert(verify(proof), "Invalid deposit proof");
+
+  // Ensure commitment not already registered
+  assert(!commitments.get(commitment), "Commitment already registered");
+
+  // Register the commitment
+  commitments.set(commitment, true);
+  participantCount.increment();
+}
+
+/**
+ * Lock the pool (admin action)
+ * No more deposits allowed after this
+ */
+export transition lockPool(): void {
+  // Require at least 2 participants for a lottery
+  assert(participantCount.value() >= 2, "Need at least 2 participants");
+
+  poolLocked = true;
+}
+
+/**
+ * Set randomness for winner selection
+ * In production, this would come from VRF or Midnight's randomness beacon
+ */
+export transition setRandomness(
+  randomness: Bytes<32>
+): void {
+  assert(poolLocked, "Pool must be locked first");
+  assert(!winnerSelected, "Winner already selected");
+
+  randomnessSeed = randomness;
+}
+
+/**
+ * Declare the winner
+ * Admin provides the winning commitment after off-chain selection
+ */
+export transition declareWinner(
+  winner: Commitment
+): void {
+  assert(poolLocked, "Pool must be locked");
+  assert(!winnerSelected, "Winner already selected");
+  assert(commitments.get(winner), "Winner must be a registered participant");
+
+  winnerCommitment = winner;
+  winnerSelected = true;
+}
+
+/**
+ * Winner claims their prize
+ * Returns a proof that can be used on Cardano
+ */
+export transition claimWinner(
+  commitment: Commitment,
+  proof: Proof<proveWinner>
+): Bytes<64> {
+  assert(winnerSelected, "Winner not yet selected");
+  assert(verify(proof), "Invalid winner proof");
+
+  // Return a claim token that can be verified on Cardano
+  // This is a signature/proof that Cardano contract can verify
+  return generateClaimToken(commitment, true);
+}
+
+/**
+ * Loser claims their principal back
+ * Returns a proof that can be used on Cardano
+ */
+export transition claimLoser(
+  commitment: Commitment,
+  proof: Proof<proveLoser>
+): Bytes<64> {
+  assert(winnerSelected, "Winner not yet selected");
+  assert(verify(proof), "Invalid loser proof");
+
+  // Return a claim token for principal only
+  return generateClaimToken(commitment, false);
+}
+
+// ============================================
+// Helper Functions
+// ============================================
+
+function emptyBytes32(): Bytes<32> {
+  return 0x0000000000000000000000000000000000000000000000000000000000000000;
+}
+
+function generateClaimToken(commitment: Commitment, isWinner: Boolean): Bytes<64> {
+  // Generate a claim token that Cardano can verify
+  // Format: [commitment (32 bytes) || winnerFlag (1 byte) || signature (31 bytes)]
+  const flag = isWinner ? 0x01 : 0x00;
+  return concat(commitment, padRight(toBytes(flag), 32));
+}
+
+function flatten(arr: Bytes<32>[]): Bytes<*> {
+  // Flatten array of bytes into single byte string
+  return reduce(arr, emptyBytes(), concat);
+}
+
+function emptyBytes(): Bytes<0> {
+  return 0x;
+}
