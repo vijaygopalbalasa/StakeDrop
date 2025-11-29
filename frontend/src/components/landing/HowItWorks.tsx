@@ -11,9 +11,9 @@ export function HowItWorks() {
       icon: Lock,
       color: 'bg-accent-yellow',
       details: [
-        'Generate a secret commitment locally',
+        'Sign a message to generate your secret',
         'Your deposit amount is hidden',
-        'Download your secret file for withdrawal',
+        'Your wallet is your key - no file needed!',
       ],
     },
     {
@@ -61,7 +61,7 @@ export function HowItWorks() {
       details: [
         'Winner: Principal + All Yield',
         'Others: Full Principal Back',
-        'Upload secret file to claim',
+        'Sign with wallet to claim',
       ],
     },
   ];

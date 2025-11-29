@@ -3,19 +3,29 @@
  *
  * This module provides the interface between the frontend and Midnight's ZK infrastructure.
  * It handles:
+ * - Wallet-derived secret generation (NO file download needed!)
  * - Commitment generation with ZK-compatible hashing
  * - Proof generation for deposits (proveDeposit circuit)
  * - Proof generation for winner claims (proveWinner circuit)
  * - Proof generation for loser claims (proveLoser circuit)
  * - Communication with the local proof server
  *
- * Architecture:
- * 1. User's secret + amount → Commitment (via Poseidon hash)
- * 2. Commitment registered on Midnight ledger
- * 3. ZK proofs generated locally, never exposing secrets
- * 4. Proofs submitted to Cardano for on-chain verification
+ * KEY FEATURE: Wallet-Derived Secrets
+ * Users sign a deterministic message with their wallet, and the secret is derived
+ * from that signature. This means:
+ * - No file download required!
+ * - Secret is reproducible: same wallet + epoch + amount = same secret
+ * - User only needs their connected wallet to withdraw
+ * - Much better UX than file-based approach
  *
- * PHASE 3: Enhanced with environment configuration and better hash support
+ * Architecture:
+ * 1. User signs message: "StakeDrop:epoch:{epochId}:amount:{amount}"
+ * 2. Secret derived: SHA-256(signature)
+ * 3. Commitment = SHA-256(secret || amount)
+ * 4. ZK proofs generated locally, never exposing secrets
+ * 5. Proofs submitted to Cardano for on-chain verification
+ *
+ * PHASE 4: Wallet-derived secrets for improved UX
  */
 
 // =============================================================================
@@ -119,12 +129,102 @@ export function isDemoMode(): boolean {
 }
 
 /**
- * Generate a cryptographically secure 32-byte secret
+ * Generate a cryptographically secure 32-byte secret (legacy - not recommended)
+ * @deprecated Use deriveSecretFromWallet instead for better UX
  */
 export function generateMidnightSecret(): Uint8Array {
   const secret = new Uint8Array(32);
   crypto.getRandomValues(secret);
   return secret;
+}
+
+// =============================================================================
+// WALLET-DERIVED SECRET GENERATION (Recommended)
+// =============================================================================
+
+/**
+ * Generate the deterministic message that will be signed by the wallet
+ * This message binds the secret to: wallet address + epoch + amount
+ */
+export function getSigningMessage(epochId: number, amount: bigint): string {
+  return `StakeDrop Deposit Authorization\n\nEpoch: ${epochId}\nAmount: ${amount.toString()} lovelace\n\nSign this message to generate your private ZK commitment.\nThis signature will be used to derive your secret - only you can recreate it with your wallet.`;
+}
+
+/**
+ * Derive a 32-byte secret from a wallet signature
+ * The secret is deterministic: same signature = same secret
+ */
+export async function deriveSecretFromSignature(signature: string): Promise<Uint8Array> {
+  // Convert signature to bytes
+  const signatureBytes = hexToBytes(signature);
+
+  // Hash the signature to get a 32-byte secret
+  const hashBuffer = await crypto.subtle.digest('SHA-256', signatureBytes);
+  const secret = new Uint8Array(hashBuffer);
+
+  debugLog('Secret derived from wallet signature', {
+    signatureLength: signature.length,
+    secretHex: bytesToHex(secret).slice(0, 16) + '...'
+  });
+
+  return secret;
+}
+
+/**
+ * Complete wallet-derived commitment generation
+ * This is the main function for generating commitments without file downloads
+ *
+ * @param wallet - MeshJS wallet instance (any type for compatibility)
+ * @param address - User's wallet address
+ * @param epochId - Current epoch ID
+ * @param amount - Deposit amount in lovelace
+ * @returns Promise with secret and commitment
+ */
+export async function generateWalletDerivedCommitment(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  wallet: any,
+  address: string,
+  epochId: number,
+  amount: bigint
+): Promise<{ secret: Uint8Array; commitment: MidnightCommitment }> {
+  debugLog('Generating wallet-derived commitment', { epochId, amount: amount.toString() });
+
+  // Generate the deterministic signing message
+  const message = getSigningMessage(epochId, amount);
+
+  // Convert message to hex for wallet signing
+  const messageHex = bytesToHex(new TextEncoder().encode(message));
+
+  // Request wallet signature
+  debugLog('Requesting wallet signature for message');
+  const { signature } = await wallet.signData(address, messageHex);
+
+  // Derive secret from signature
+  const secret = await deriveSecretFromSignature(signature);
+
+  // Generate commitment from secret + amount
+  const commitment = await generateMidnightCommitment(secret, amount);
+
+  debugLog('Wallet-derived commitment generated', {
+    commitmentHex: commitment.hex.slice(0, 16) + '...'
+  });
+
+  return { secret, commitment };
+}
+
+/**
+ * Regenerate secret for withdrawal using wallet signature
+ * This allows users to withdraw without needing a file!
+ */
+export async function regenerateSecretForWithdrawal(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  wallet: any,
+  address: string,
+  epochId: number,
+  amount: bigint
+): Promise<{ secret: Uint8Array; commitment: MidnightCommitment }> {
+  // This is the same as generating - signing the same message produces the same signature
+  return generateWalletDerivedCommitment(wallet, address, epochId, amount);
 }
 
 /**

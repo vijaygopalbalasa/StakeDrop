@@ -31,12 +31,12 @@ export function FAQ() {
     {
       category: 'Privacy',
       question: 'How does the privacy work?',
-      answer: 'StakeDrop uses Midnight Network\'s zero-knowledge proofs. When you deposit, you create a cryptographic "commitment" that hides your deposit amount. Only you know how much you deposited. When withdrawing, you prove ownership using a secret file without revealing any details.',
+      answer: 'StakeDrop uses Midnight Network\'s zero-knowledge proofs. When you deposit, you sign a message with your wallet to create a cryptographic "commitment" that hides your deposit amount. Only you know how much you deposited. When withdrawing, you simply sign another message to prove ownership without revealing any details.',
     },
     {
       category: 'Privacy',
-      question: 'What is the secret file?',
-      answer: 'When you deposit, you download a secret JSON file. This file contains a cryptographic secret that proves you own your deposit. You MUST save this file securely - if you lose it, you cannot withdraw your funds. Think of it like a private key for your deposit.',
+      question: 'How do I prove I own my deposit?',
+      answer: 'Your wallet is your key! When you deposit, you sign a message that creates your unique secret. To withdraw, you sign the same message again - this regenerates your secret and proves ownership. No files to download or lose. Just connect the same wallet you used to deposit.',
     },
     {
       category: 'Technical',
@@ -61,7 +61,7 @@ export function FAQ() {
     {
       category: 'Using the App',
       question: 'When can I withdraw?',
-      answer: 'Withdrawals open after each epoch ends and the winner is selected. You can withdraw during the "Distributing" phase. Simply upload your secret file and sign the withdrawal transaction.',
+      answer: 'Withdrawals open after each epoch ends and the winner is selected. You can withdraw during the "Distributing" phase. Simply connect your wallet, select your deposit, sign a message to prove ownership, and confirm the withdrawal transaction.',
     },
   ];
 

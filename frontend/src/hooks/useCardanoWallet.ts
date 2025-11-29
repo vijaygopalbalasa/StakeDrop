@@ -21,6 +21,9 @@ interface WalletApi {
   getNetworkId: () => Promise<number>;
   signTx: (tx: string, partialSign?: boolean) => Promise<string>;
   submitTx: (tx: string) => Promise<string>;
+  signData: (address: string, payload: string) => Promise<{ signature: string; key: string }>;
+  getCollateral?: () => Promise<string[]>;
+  getUtxos?: () => Promise<string[]>;
 }
 
 // Lovelace per ADA

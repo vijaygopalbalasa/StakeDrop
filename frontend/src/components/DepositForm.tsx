@@ -6,17 +6,15 @@ import { usePool, saveDeposit } from '@/hooks/usePool';
 import { parseAda, MIN_DEPOSIT_ADA, formatAda, DEFAULT_DEPOSIT_ADA } from '@/lib/constants';
 import { getPoolScriptAddress } from '@/lib/contract';
 import {
-  generateMidnightSecret,
-  generateMidnightCommitment,
+  generateWalletDerivedCommitment,
   generateDepositProof,
   registerCommitmentOnMidnight,
-  createMidnightSecretFile,
   isMidnightAvailable,
   MidnightCommitment,
 } from '@/lib/midnight';
-import { Shield, AlertCircle, CheckCircle, ExternalLink, Lock, Wallet, FileDown, Zap } from 'lucide-react';
+import { Shield, AlertCircle, CheckCircle, ExternalLink, Lock, Wallet, Zap, Fingerprint } from 'lucide-react';
 
-type DepositStep = 'input' | 'generating' | 'proving' | 'download' | 'confirming' | 'registering' | 'complete' | 'error';
+type DepositStep = 'input' | 'signing' | 'proving' | 'confirming' | 'registering' | 'complete' | 'error';
 
 interface DepositData {
   secret: Uint8Array;
@@ -33,7 +31,6 @@ export function DepositForm() {
   const [amount, setAmount] = useState(DEFAULT_DEPOSIT_ADA.toString());
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<DepositStep>('input');
-  const [secretFile, setSecretFile] = useState<{ content: string; filename: string } | null>(null);
   const [depositData, setDepositData] = useState<DepositData | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +51,7 @@ export function DepositForm() {
   };
 
   const handleGenerateCommitment = async () => {
-    if (!connected || !wallet || !state) return;
+    if (!connected || !wallet || !state || !address) return;
 
     const depositAmount = parseAda(amount);
     if (depositAmount < parseAda(MIN_DEPOSIT_ADA.toString())) {
@@ -70,13 +67,15 @@ export function DepositForm() {
     try {
       setLoading(true);
       setError(null);
-      setStep('generating');
+      setStep('signing');
 
-      // Generate cryptographic secret using Midnight-compatible method
-      const secret = generateMidnightSecret();
-
-      // Generate ZK-compatible commitment
-      const commitment = await generateMidnightCommitment(secret, depositAmount);
+      // Generate commitment using wallet signature (NO FILE DOWNLOAD NEEDED!)
+      const { secret, commitment } = await generateWalletDerivedCommitment(
+        wallet,
+        address,
+        state.epochId,
+        depositAmount
+      );
 
       setStep('proving');
 
@@ -95,39 +94,21 @@ export function DepositForm() {
         proof: proof.hex,
       });
 
-      // Create enhanced secret file with Midnight data
-      const fileContent = createMidnightSecretFile(
-        secret,
-        amount,
-        commitment,
-        state.epochId
-      );
-      const filename = `stakedrop-midnight-secret-epoch${state.epochId}-${Date.now()}.json`;
-      setSecretFile({ content: fileContent, filename });
-      setStep('download');
+      setStep('confirming');
     } catch (err) {
       console.error('Commitment generation error:', err);
-      setError('Failed to generate ZK commitment');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to generate ZK commitment';
+
+      // Check if user declined the signature
+      if (errorMessage.includes('User declined') || errorMessage.includes('rejected') || errorMessage.includes('cancelled')) {
+        setError('Signature request was cancelled');
+      } else {
+        setError(errorMessage);
+      }
       setStep('input');
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleDownloadSecret = () => {
-    if (!secretFile) return;
-
-    const blob = new Blob([secretFile.content], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = secretFile.filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-
-    setStep('confirming');
   };
 
   const handleConfirmDeposit = async () => {
@@ -155,6 +136,7 @@ export function DepositForm() {
         amount: lovelaceAmount,
         zkProof: depositData.proof?.slice(0, 64) || 'simulated',
         midnight: midnightAvailable ? 'connected' : 'simulated',
+        walletDerived: true, // Mark as wallet-derived for tracking
       });
 
       const unsignedTx = await tx.build();
@@ -181,7 +163,7 @@ export function DepositForm() {
         }
       }
 
-      // Save deposit to local storage
+      // Save deposit to local storage (for display purposes only - secret is in wallet!)
       saveDeposit({
         commitment: depositData.commitment.hex,
         amount: parseAda(amount).toString(),
@@ -208,7 +190,6 @@ export function DepositForm() {
 
   const resetForm = () => {
     setStep('input');
-    setSecretFile(null);
     setDepositData(null);
     setTxHash(null);
     setAmount(DEFAULT_DEPOSIT_ADA.toString());
@@ -284,6 +265,20 @@ export function DepositForm() {
               </div>
             </div>
 
+            {/* Wallet-Derived Secret Info Box */}
+            <div className="bg-accent-green border-4 border-brutal-black p-4 mb-6">
+              <div className="flex items-start gap-3">
+                <Fingerprint className="w-6 h-6 flex-shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="font-bold uppercase mb-1">No File Download Needed!</h4>
+                  <p className="text-sm">
+                    Your secret is derived from your wallet signature. Just sign a message
+                    and your wallet becomes your key to withdraw. Simple and secure.
+                  </p>
+                </div>
+              </div>
+            </div>
+
             {/* Midnight ZK Info Box */}
             <div className="bg-accent-purple text-white border-4 border-brutal-black p-4 mb-6">
               <div className="flex items-start gap-3">
@@ -292,7 +287,7 @@ export function DepositForm() {
                   <h4 className="font-bold uppercase mb-1">Midnight ZK Privacy</h4>
                   <p className="text-sm opacity-90">
                     Your deposit uses Zero-Knowledge proofs powered by Midnight Network.
-                    Amount and identity are cryptographically hidden - only you can prove ownership.
+                    Amount and identity are cryptographically hidden.
                   </p>
                 </div>
               </div>
@@ -310,18 +305,22 @@ export function DepositForm() {
               disabled={loading || !amount || parseFloat(amount) < MIN_DEPOSIT_ADA}
               className="w-full py-4 bg-accent-green border-4 border-brutal-black shadow-brutal hover:shadow-brutal-md hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all font-bold text-lg uppercase tracking-wider disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-x-0 disabled:hover:translate-y-0 disabled:hover:shadow-brutal flex items-center justify-center gap-2"
             >
-              <Zap className="w-5 h-5" />
-              Generate ZK Commitment
+              <Fingerprint className="w-5 h-5" />
+              Sign & Generate Commitment
             </button>
           </>
         )}
 
-        {/* Step 2: Generating Secret */}
-        {step === 'generating' && (
+        {/* Step 2: Signing with Wallet */}
+        {step === 'signing' && (
           <div className="text-center py-12">
             <div className="spinner-brutal w-16 h-16 mx-auto mb-6" />
-            <h3 className="text-xl font-bold uppercase mb-2">Generating Cryptographic Secret...</h3>
-            <p className="text-gray-600">Creating your private key material</p>
+            <h3 className="text-xl font-bold uppercase mb-2">Sign with Wallet...</h3>
+            <p className="text-gray-600">Approve the signature request in your wallet</p>
+            <div className="mt-4 flex items-center justify-center gap-2 text-sm text-accent-green">
+              <Fingerprint className="w-4 h-4" />
+              <span>Your signature derives your secret</span>
+            </div>
           </div>
         )}
 
@@ -338,43 +337,14 @@ export function DepositForm() {
           </div>
         )}
 
-        {/* Step 3: Download Secret */}
-        {step === 'download' && (
-          <div className="text-center py-6">
-            <div className="bg-accent-pink border-4 border-brutal-black p-6 mb-6">
-              <AlertCircle className="w-12 h-12 mx-auto mb-4" />
-              <h3 className="text-xl font-bold uppercase mb-2">Save Your ZK Secret!</h3>
-              <p className="text-sm">
-                This file contains your secret key for generating withdrawal proofs.
-                <strong className="block mt-2">If you lose this file, you cannot prove ownership and recover your deposit.</strong>
-              </p>
-            </div>
-
-            <button
-              onClick={handleDownloadSecret}
-              className="w-full py-4 bg-accent-yellow border-4 border-brutal-black shadow-brutal hover:shadow-brutal-md hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all font-bold text-lg uppercase tracking-wider flex items-center justify-center gap-3"
-            >
-              <FileDown className="w-6 h-6" />
-              Download Secret File
-            </button>
-
-            <button
-              onClick={() => setStep('input')}
-              className="w-full mt-4 py-3 font-bold uppercase text-gray-600 hover:text-brutal-black transition-colors"
-            >
-              Go Back
-            </button>
-          </div>
-        )}
-
-        {/* Step 4: Confirm Transaction */}
+        {/* Step 3: Confirm Transaction (No more download step!) */}
         {step === 'confirming' && (
           <div className="text-center py-6">
             <div className="w-20 h-20 bg-accent-green border-4 border-brutal-black mx-auto mb-6 flex items-center justify-center">
               <CheckCircle className="w-10 h-10" />
             </div>
-            <h3 className="text-xl font-bold uppercase mb-2">Secret File Secured!</h3>
-            <p className="text-gray-600 mb-6">Now confirm the deposit transaction in your wallet.</p>
+            <h3 className="text-xl font-bold uppercase mb-2">Commitment Generated!</h3>
+            <p className="text-gray-600 mb-6">Your wallet is your key. Confirm the deposit transaction.</p>
 
             <div className="bg-brutal-cream border-4 border-brutal-black p-4 mb-6 text-left">
               <div className="flex justify-between mb-3 pb-3 border-b-2 border-brutal-black">
@@ -391,12 +361,33 @@ export function DepositForm() {
                   {depositData?.commitment.hex.slice(0, 16)}...
                 </span>
               </div>
-              <div className="flex justify-between items-center">
+              <div className="flex justify-between items-center mb-3 pb-3 border-b-2 border-brutal-black">
                 <span className="font-bold uppercase text-sm">Privacy</span>
                 <span className="flex items-center gap-1 text-accent-purple font-bold text-sm">
                   <Zap className="w-4 h-4" />
                   ZK Protected
                 </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="font-bold uppercase text-sm">Recovery</span>
+                <span className="flex items-center gap-1 text-accent-green font-bold text-sm">
+                  <Fingerprint className="w-4 h-4" />
+                  Wallet-Derived
+                </span>
+              </div>
+            </div>
+
+            {/* Important Notice */}
+            <div className="bg-accent-blue text-white border-4 border-brutal-black p-4 mb-6 text-left">
+              <div className="flex items-start gap-3">
+                <Wallet className="w-6 h-6 flex-shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="font-bold uppercase mb-1">Your Wallet = Your Key</h4>
+                  <p className="text-sm opacity-90">
+                    To withdraw, simply connect the same wallet and sign a message.
+                    No files to save or lose!
+                  </p>
+                </div>
               </div>
             </div>
 
@@ -432,7 +423,7 @@ export function DepositForm() {
           </div>
         )}
 
-        {/* Step 4b: Registering on Midnight */}
+        {/* Step 4: Registering on Midnight */}
         {step === 'registering' && (
           <div className="text-center py-12">
             <div className="spinner-brutal w-16 h-16 mx-auto mb-6" />
@@ -456,8 +447,19 @@ export function DepositForm() {
               Your {amount} ADA deposit is now privacy-protected for Epoch #{state?.epochId}
             </p>
 
-            {/* Cardano Transaction */}
+            {/* Wallet Recovery Notice */}
             <div className="bg-accent-green border-4 border-brutal-black p-4 mb-4">
+              <div className="flex items-center gap-2 justify-center mb-2">
+                <Fingerprint className="w-5 h-5" />
+                <p className="font-bold text-sm uppercase">Wallet-Derived Recovery</p>
+              </div>
+              <p className="text-sm">
+                Your wallet is your key. To withdraw, just connect this wallet and sign a message.
+              </p>
+            </div>
+
+            {/* Cardano Transaction */}
+            <div className="bg-brutal-cream border-4 border-brutal-black p-4 mb-4">
               <p className="font-bold text-sm uppercase mb-2">Cardano Transaction</p>
               <p className="font-mono text-xs break-all">{txHash}</p>
             </div>

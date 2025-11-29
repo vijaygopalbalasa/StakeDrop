@@ -1,14 +1,13 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useCardanoWallet } from '@/hooks/useCardanoWallet';
 import { usePool } from '@/hooks/usePool';
-import { formatAda, parseAda } from '@/lib/constants';
+import { formatAda, parseAda, LOVELACE_PER_ADA } from '@/lib/constants';
 import {
-  parseMidnightSecretFile,
+  regenerateSecretForWithdrawal,
   generateWinnerProof,
   generateLoserProof,
-  verifySecretOwnership,
   hexToBytes,
   isMidnightAvailable,
   MidnightCommitment,
@@ -17,43 +16,59 @@ import {
   Trophy,
   AlertCircle,
   CheckCircle,
-  FileJson,
-  X,
   ExternalLink,
   Wallet,
   Lock,
   Gift,
-  FileUp,
   Zap,
   Shield,
+  Fingerprint,
 } from 'lucide-react';
+
+interface DepositEntry {
+  commitment: string;
+  amount: string;
+  epochId: number;
+}
 
 interface SecretData {
   secret: Uint8Array;
   amount: string;
   commitment: MidnightCommitment;
   epochId: number;
-  midnightTxHash?: string;
 }
 
-type WithdrawStep = 'upload' | 'verifying' | 'proving' | 'ready' | 'withdrawing' | 'complete' | 'error';
+type WithdrawStep = 'select' | 'signing' | 'proving' | 'ready' | 'withdrawing' | 'complete' | 'error';
+
+// Get stored deposits from localStorage
+function getStoredDeposits(): DepositEntry[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const stored = localStorage.getItem('stakedrop_pool_deposits');
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+}
 
 export function WithdrawForm() {
   const { connected, wallet, address, network } = useCardanoWallet();
   const { state, canWithdraw, refresh } = usePool();
+  const [deposits, setDeposits] = useState<DepositEntry[]>([]);
+  const [selectedDeposit, setSelectedDeposit] = useState<DepositEntry | null>(null);
   const [secretData, setSecretData] = useState<SecretData | null>(null);
-  const [step, setStep] = useState<WithdrawStep>('upload');
+  const [step, setStep] = useState<WithdrawStep>('select');
   const [loading, setLoading] = useState(false);
   const [isWinner, setIsWinner] = useState<boolean | null>(null);
   const [zkProof, setZkProof] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [midnightAvailable, setMidnightAvailable] = useState<boolean | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Check Midnight availability on mount
+  // Check Midnight availability and load deposits on mount
   useEffect(() => {
     isMidnightAvailable().then(setMidnightAvailable);
+    setDeposits(getStoredDeposits());
   }, []);
 
   const getExplorerUrl = (hash: string) => {
@@ -65,83 +80,62 @@ export function WithdrawForm() {
     return `${baseUrls[network] || baseUrls.preview}/transaction/${hash}`;
   };
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  const handleSelectDeposit = async (deposit: DepositEntry) => {
+    if (!connected || !wallet || !address || !state) return;
 
     try {
       setLoading(true);
       setError(null);
-      setStep('verifying');
+      setSelectedDeposit(deposit);
+      setStep('signing');
 
-      const content = await file.text();
+      // Regenerate secret from wallet signature
+      const amount = parseAda(deposit.amount.includes('.') ? deposit.amount : (Number(deposit.amount) / LOVELACE_PER_ADA).toString());
 
-      // Try parsing as Midnight v2 format first, then fall back to v1
-      let parsed = parseMidnightSecretFile(content);
+      const { secret, commitment } = await regenerateSecretForWithdrawal(
+        wallet,
+        address,
+        deposit.epochId,
+        amount
+      );
 
-      if (!parsed) {
-        // Try legacy v1 format
-        try {
-          const legacyData = JSON.parse(content);
-          if (legacyData.secret && legacyData.amount && legacyData.commitment) {
-            parsed = {
-              secret: hexToBytes(legacyData.secret),
-              amount: legacyData.amount,
-              commitment: {
-                value: hexToBytes(legacyData.commitment),
-                hex: legacyData.commitment,
-              },
-              epochId: legacyData.epochId || 0,
-            };
-          }
-        } catch {
-          // Not valid JSON
-        }
-      }
-
-      if (!parsed) {
-        setError('Invalid secret file format. Please use a valid StakeDrop secret file.');
-        setStep('upload');
+      // Verify the regenerated commitment matches the stored one
+      if (commitment.hex !== deposit.commitment) {
+        setError('Commitment mismatch. This deposit may have been made with a different wallet.');
+        setStep('select');
+        setLoading(false);
         return;
       }
 
-      setSecretData(parsed);
-
-      // Verify ownership of the commitment
-      const amount = parseAda(parsed.amount);
-      const isValid = await verifySecretOwnership(parsed.secret, amount, parsed.commitment.value);
-
-      if (!isValid) {
-        setError('Commitment verification failed. The secret does not match the commitment.');
-        setSecretData(null);
-        setStep('upload');
-        return;
-      }
+      setSecretData({
+        secret,
+        amount: deposit.amount.includes('.') ? deposit.amount : (Number(deposit.amount) / LOVELACE_PER_ADA).toString(),
+        commitment,
+        epochId: deposit.epochId,
+      });
 
       // Check if this commitment is the winner
-      const winner = state?.winnerCommitment === parsed.commitment.hex;
+      const winner = state.winnerCommitment === deposit.commitment;
       setIsWinner(winner);
 
       // Generate ZK proof for withdrawal
       setStep('proving');
 
-      const winnerCommitmentBytes = state?.winnerCommitment
+      const winnerCommitmentBytes = state.winnerCommitment
         ? hexToBytes(state.winnerCommitment)
         : new Uint8Array(32);
 
       let proof;
       if (winner) {
-        // Generate winner proof
         proof = await generateWinnerProof({
-          secret: parsed.secret,
-          myCommitment: parsed.commitment.value,
+          secret,
+          myCommitment: commitment.value,
           winnerCommitment: winnerCommitmentBytes,
         });
       } else {
-        // Generate loser proof
         proof = await generateLoserProof({
-          secret: parsed.secret,
-          myCommitment: parsed.commitment.value,
+          secret,
+          myCommitment: commitment.value,
           winnerCommitment: winnerCommitmentBytes,
           isRegistered: true,
         });
@@ -150,9 +144,15 @@ export function WithdrawForm() {
       setZkProof(proof.hex);
       setStep('ready');
     } catch (err) {
-      console.error('File upload error:', err);
-      setError('Failed to process secret file');
-      setStep('upload');
+      console.error('Withdrawal preparation error:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to prepare withdrawal';
+
+      if (errorMessage.includes('User declined') || errorMessage.includes('rejected') || errorMessage.includes('cancelled')) {
+        setError('Signature request was cancelled');
+      } else {
+        setError(errorMessage);
+      }
+      setStep('select');
     } finally {
       setLoading(false);
     }
@@ -183,6 +183,7 @@ export function WithdrawForm() {
         isWinner: isWinner || false,
         zkProof: zkProof.slice(0, 64),
         midnight: midnightAvailable ? 'verified' : 'simulated',
+        walletDerived: true,
       });
 
       const unsignedTx = await tx.build();
@@ -208,15 +209,14 @@ export function WithdrawForm() {
   };
 
   const resetForm = () => {
+    setSelectedDeposit(null);
     setSecretData(null);
     setIsWinner(null);
     setZkProof(null);
     setError(null);
     setTxHash(null);
-    setStep('upload');
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
+    setStep('select');
+    setDeposits(getStoredDeposits());
   };
 
   const principalAmount = secretData ? parseAda(secretData.amount) : BigInt(0);
@@ -340,39 +340,80 @@ export function WithdrawForm() {
       </div>
 
       <div className="p-6">
-        {/* Upload Step */}
-        {step === 'upload' && (
+        {/* Select Deposit Step */}
+        {step === 'select' && (
           <>
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              className="border-4 border-dashed border-brutal-black p-8 text-center cursor-pointer hover:bg-brutal-cream transition-colors group"
-            >
-              <div className="w-20 h-20 bg-brutal-black mx-auto mb-6 flex items-center justify-center group-hover:bg-accent-purple transition-colors">
-                <FileUp className="w-10 h-10 text-accent-yellow" />
+            {deposits.length > 0 ? (
+              <>
+                <h3 className="font-bold uppercase mb-4">Your Deposits</h3>
+                <div className="space-y-3 mb-6">
+                  {deposits.map((deposit, index) => (
+                    <button
+                      key={index}
+                      onClick={() => handleSelectDeposit(deposit)}
+                      disabled={loading}
+                      className="w-full p-4 bg-brutal-cream border-4 border-brutal-black hover:bg-accent-yellow transition-colors text-left disabled:opacity-50"
+                    >
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <span className="font-bold text-lg">
+                            {deposit.amount.includes('.')
+                              ? deposit.amount
+                              : (Number(deposit.amount) / LOVELACE_PER_ADA).toFixed(2)} ADA
+                          </span>
+                          <span className="text-sm text-gray-600 ml-2">Epoch #{deposit.epochId}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {state?.winnerCommitment === deposit.commitment && (
+                            <span className="px-2 py-1 bg-accent-yellow border-2 border-brutal-black text-xs font-bold uppercase">
+                              Winner!
+                            </span>
+                          )}
+                          <Fingerprint className="w-5 h-5 text-accent-green" />
+                        </div>
+                      </div>
+                      <div className="mt-2 font-mono text-xs text-gray-500">
+                        {deposit.commitment.slice(0, 20)}...
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="text-center py-8">
+                <div className="w-20 h-20 bg-brutal-cream mx-auto mb-6 flex items-center justify-center border-4 border-brutal-black">
+                  <Wallet className="w-10 h-10 text-gray-400" />
+                </div>
+                <h3 className="text-xl font-bold uppercase mb-2">No Deposits Found</h3>
+                <p className="text-gray-600">
+                  No deposits found for this wallet. Make a deposit first!
+                </p>
               </div>
-              <h3 className="text-xl font-bold uppercase mb-2">Upload ZK Secret File</h3>
-              <p className="text-gray-600">
-                Upload the secret file you downloaded when depositing
-              </p>
+            )}
+
+            {/* Wallet-Derived Info */}
+            <div className="bg-accent-green border-4 border-brutal-black p-4 mb-6">
+              <div className="flex items-start gap-3">
+                <Fingerprint className="w-6 h-6 flex-shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="font-bold uppercase mb-1">Wallet-Derived Recovery</h4>
+                  <p className="text-sm">
+                    No file needed! Just sign a message with your wallet to prove ownership
+                    and withdraw your funds.
+                  </p>
+                </div>
+              </div>
             </div>
 
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".json"
-              onChange={handleFileUpload}
-              className="hidden"
-            />
-
             {/* ZK Privacy Info */}
-            <div className="mt-6 bg-accent-purple text-white border-4 border-brutal-black p-4">
+            <div className="bg-accent-purple text-white border-4 border-brutal-black p-4">
               <div className="flex items-start gap-3">
                 <Shield className="w-6 h-6 flex-shrink-0 mt-0.5" />
                 <div>
                   <h4 className="font-bold uppercase mb-1">Zero-Knowledge Withdrawal</h4>
                   <p className="text-sm opacity-90">
-                    Your secret file generates a ZK proof that verifies ownership without revealing your identity.
-                    Only you can withdraw your funds.
+                    Your wallet signature generates a ZK proof that verifies ownership
+                    without revealing your identity.
                   </p>
                 </div>
               </div>
@@ -387,12 +428,16 @@ export function WithdrawForm() {
           </>
         )}
 
-        {/* Verifying Step */}
-        {step === 'verifying' && (
+        {/* Signing Step */}
+        {step === 'signing' && (
           <div className="text-center py-12">
             <div className="spinner-brutal w-16 h-16 mx-auto mb-6" />
-            <h3 className="text-xl font-bold uppercase mb-2">Verifying Secret...</h3>
-            <p className="text-gray-600">Checking commitment ownership</p>
+            <h3 className="text-xl font-bold uppercase mb-2">Sign with Wallet...</h3>
+            <p className="text-gray-600">Approve the signature request to regenerate your secret</p>
+            <div className="mt-4 flex items-center justify-center gap-2 text-sm text-accent-green">
+              <Fingerprint className="w-4 h-4" />
+              <span>Your signature proves ownership</span>
+            </div>
           </div>
         )}
 
@@ -412,19 +457,11 @@ export function WithdrawForm() {
         {/* Ready Step - Show withdrawal details */}
         {step === 'ready' && secretData && (
           <>
-            {/* Secret file loaded */}
+            {/* Secret verified */}
             <div className="bg-brutal-cream border-4 border-brutal-black p-4 mb-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <FileJson className="w-5 h-5" />
-                  <span className="font-bold uppercase">ZK Secret Verified</span>
-                </div>
-                <button
-                  onClick={resetForm}
-                  className="p-2 bg-brutal-white border-3 border-brutal-black hover:bg-accent-pink transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+              <div className="flex items-center gap-2 mb-4">
+                <CheckCircle className="w-5 h-5 text-accent-green" />
+                <span className="font-bold uppercase">Ownership Verified via Wallet Signature</span>
               </div>
 
               <div className="space-y-2">
@@ -518,6 +555,14 @@ export function WithdrawForm() {
             >
               <Zap className="w-5 h-5" />
               ZK Withdraw {formatAda(totalAmount)} ADA
+            </button>
+
+            <button
+              onClick={resetForm}
+              disabled={loading}
+              className="w-full mt-4 py-3 font-bold uppercase text-gray-600 hover:text-brutal-black transition-colors disabled:opacity-50"
+            >
+              Cancel
             </button>
           </>
         )}

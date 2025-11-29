@@ -19,7 +19,7 @@ StakeDrop is a **no-loss lottery protocol** that combines Cardano's native staki
 - Real yield from Cardano staking (~4.5% APY)
 - Privacy-preserving deposits via ZK commitments
 - Anonymous winner selection
-- Self-custody with secret file ownership
+- Wallet-derived secrets (no file downloads needed!)
 
 ---
 
@@ -109,9 +109,10 @@ StakeDrop uses Midnight Network's ZK infrastructure to ensure:
 ### Data Flow
 
 1. **Deposit Flow:**
-   - User generates 32-byte random secret locally
+   - User signs a deterministic message with their wallet
+   - Secret derived from signature: `secret = SHA-256(wallet_signature)`
    - Commitment computed: `SHA-256(secret || amount)`
-   - Secret file downloaded to user's device
+   - No file download needed - wallet IS the key!
    - Deposit transaction sent to Cardano with commitment
    - Commitment registered on Midnight for privacy tracking
 
@@ -126,7 +127,8 @@ StakeDrop uses Midnight Network's ZK infrastructure to ensure:
    - Winner published without revealing identity
 
 4. **Withdrawal Flow:**
-   - User uploads secret file
+   - User connects same wallet used for deposit
+   - Signs same message to regenerate secret
    - ZK proof generated proving ownership
    - Winner gets principal + yield, losers get principal
    - Replay protection prevents double withdrawals
@@ -398,8 +400,8 @@ export circuit proveLoser(
 | Component | Purpose |
 |-----------|---------|
 | `WalletConnect.tsx` | Handles wallet connection with Eternl, Nami, Lace support |
-| `DepositForm.tsx` | Deposit flow with secret generation and file download |
-| `WithdrawForm.tsx` | Withdrawal with secret file upload and proof generation |
+| `DepositForm.tsx` | Deposit flow with wallet-derived secret generation |
+| `WithdrawForm.tsx` | Withdrawal with wallet signature verification |
 | `PoolStats.tsx` | Displays pool status, participant count, prize amount |
 | `EpochTimer.tsx` | Countdown to epoch end |
 
@@ -458,9 +460,9 @@ npm run build
 
 1. **Connect Wallet** - Use Eternl/Nami on Preview testnet
 2. **Get Test ADA** - Use the faucet link in the app
-3. **Make Deposit** - Enter amount, download secret file
+3. **Make Deposit** - Enter amount, sign wallet message to create secret
 4. **Check Pool Stats** - Verify deposit registered
-5. **Test Withdrawal** - Upload secret file, claim funds
+5. **Test Withdrawal** - Select deposit, sign message to prove ownership, claim funds
 
 ---
 
@@ -472,13 +474,14 @@ npm run build
 - **Replay Protection**: Withdrawn commitments tracked to prevent double spending
 - **Admin Controls**: Epoch management requires admin signature
 - **Input Validation**: Client-side and on-chain validation
-- **Self-Custody**: Users control their secrets locally
+- **Wallet-Derived Secrets**: No files to lose - your wallet IS your key
 
 ### Security Considerations
 
-1. **Secret File Storage**: Users must securely store their secret files. Lost secrets mean lost funds.
-2. **Testnet Only**: This is a hackathon project. Not audited for mainnet use.
-3. **Admin Trust**: Current version requires trusted admin for epoch management.
+1. **Wallet Security**: Your wallet controls access to your deposits. Keep your wallet secure.
+2. **Deterministic Secrets**: Same wallet + same epoch + same amount = same secret. This enables recovery.
+3. **Testnet Only**: This is a hackathon project. Not audited for mainnet use.
+4. **Admin Trust**: Current version requires trusted admin for epoch management.
 
 ### Known Limitations
 
