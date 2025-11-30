@@ -96,20 +96,24 @@ export const getConfig = (): MidnightConfig => ({
 
 /**
  * Check if Lace wallet is available in the browser
+ * Checks both mnLace (official) and lace as fallback
  */
 export function isLaceAvailable(): boolean {
   if (typeof window === 'undefined') return false;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return !!(window as any).midnight?.lace;
+  const midnight = (window as any).midnight;
+  return !!(midnight && (midnight.mnLace || midnight.lace));
 }
 
 /**
  * Get the Lace wallet instance
+ * Tries mnLace first (official), then lace as fallback
  */
 export function getLaceWallet(): LaceWallet | null {
   if (!isLaceAvailable()) return null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (window as any).midnight.lace;
+  const midnight = (window as any).midnight;
+  return midnight.mnLace || midnight.lace || null;
 }
 
 /**
