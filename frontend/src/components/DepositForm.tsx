@@ -148,18 +148,27 @@ export function DepositForm() {
       setError(null);
 
       const { Transaction } = await import('@meshsdk/core');
-      const tx = new Transaction({ initiator: wallet });
       const lovelaceAmount = parseAda(amount).toString();
 
       // Get the pool validator script address for the current network
       const scriptAddress = getPoolScriptAddress(network as 'mainnet' | 'preview' | 'preprod');
 
+      console.log('[StakeDrop] Building transaction:', {
+        network,
+        scriptAddress,
+        lovelaceAmount,
+        userAddress: address,
+        commitment: depositData.commitment.hex,
+      });
+
+      // Use the wallet from hook - cast to any to bypass type issues
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const tx = new Transaction({ initiator: wallet as any });
+
       // Send to script address with commitment in metadata
       tx.sendLovelace(scriptAddress, lovelaceAmount);
 
       // Include Midnight commitment and ZK proof reference in metadata (CIP-20)
-      // Note: Cardano metadata only supports strings, integers, bytes, lists, and maps
-      // Boolean values must be converted to strings
       tx.setMetadata(674, {
         msg: ['StakeDrop ZK Deposit'],
         commitment: depositData.commitment.hex.slice(0, 64),
