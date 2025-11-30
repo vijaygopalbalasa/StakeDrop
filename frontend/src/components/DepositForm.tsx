@@ -23,6 +23,7 @@ interface DepositData {
   epochId: number;
   proof?: string;
   midnightTxHash?: string;
+  midnightExplorerUrl?: string;
 }
 
 interface StoredDeposit {
@@ -205,7 +206,11 @@ export function DepositForm() {
         );
 
         if (midnightResult.success) {
-          setDepositData(prev => prev ? { ...prev, midnightTxHash: midnightResult.txHash } : null);
+          setDepositData(prev => prev ? {
+            ...prev,
+            midnightTxHash: midnightResult.txHash,
+            midnightExplorerUrl: midnightResult.explorerUrl
+          } : null);
         }
       }
 
@@ -580,21 +585,46 @@ export function DepositForm() {
             {depositData?.midnightTxHash && (
               <div className="bg-accent-purple text-white border-4 border-brutal-black p-4 mb-4">
                 <p className="font-bold text-sm uppercase mb-2 flex items-center gap-1 justify-center">
-                  <Zap className="w-4 h-4" /> Midnight Registration
+                  <Zap className="w-4 h-4" /> Midnight ZK Proof Registration
                 </p>
-                <p className="font-mono text-xs break-all">{depositData.midnightTxHash}</p>
+                <p className="font-mono text-xs break-all mb-3">{depositData.midnightTxHash}</p>
+                {depositData.midnightExplorerUrl && (
+                  <a
+                    href={depositData.midnightExplorerUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs underline hover:text-accent-yellow transition-colors"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    View on Midnight Explorer
+                  </a>
+                )}
               </div>
             )}
 
-            <a
-              href={getExplorerUrl(txHash)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 px-6 py-3 bg-accent-blue text-white border-4 border-brutal-black shadow-brutal hover:shadow-brutal-md transition-all font-bold uppercase mb-6"
-            >
-              <ExternalLink className="w-5 h-5" />
-              View on Explorer
-            </a>
+            {/* Explorer Links */}
+            <div className="flex flex-col sm:flex-row gap-3 mb-6">
+              <a
+                href={getExplorerUrl(txHash)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 bg-accent-blue text-white border-4 border-brutal-black shadow-brutal hover:shadow-brutal-md transition-all font-bold uppercase text-sm"
+              >
+                <ExternalLink className="w-4 h-4" />
+                Cardano Explorer
+              </a>
+              {depositData?.midnightExplorerUrl && (
+                <a
+                  href={depositData.midnightExplorerUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 bg-accent-purple text-white border-4 border-brutal-black shadow-brutal hover:shadow-brutal-md transition-all font-bold uppercase text-sm"
+                >
+                  <Zap className="w-4 h-4" />
+                  Midnight Explorer
+                </a>
+              )}
+            </div>
 
             <button
               onClick={resetForm}
