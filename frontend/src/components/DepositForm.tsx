@@ -4,8 +4,7 @@ import { useState, useEffect } from 'react';
 import { useCardanoWallet } from '@/hooks/useCardanoWallet';
 import { usePool, saveDeposit } from '@/hooks/usePool';
 import { parseAda, MIN_DEPOSIT_ADA, formatAda, DEFAULT_DEPOSIT_ADA } from '@/lib/constants';
-// getPoolScriptAddress not used - using hardcoded address for reliability
-// import { getPoolScriptAddress } from '@/lib/contract';
+import { getPoolScriptAddress } from '@/lib/contract';
 import {
   generateWalletDerivedCommitment,
   generateDepositProof,
@@ -157,8 +156,8 @@ export function DepositForm() {
       const { Transaction } = await import('@meshsdk/core');
       const lovelaceAmount = parseAda(amount).toString();
 
-      // Use hardcoded address for preview network to avoid any env var issues on Vercel
-      const scriptAddress = 'addr_test1wzy5mhvldymk7c6xv8590uthxz43ckuvpcdz46cgfqs96ssw3ntxc';
+      // Get the pool validator script address for the current network
+      const scriptAddress = getPoolScriptAddress(network as 'mainnet' | 'preview' | 'preprod');
 
       console.log('[StakeDrop] Building transaction:', {
         network,
@@ -168,15 +167,14 @@ export function DepositForm() {
         commitment: depositData.commitment.hex,
       });
 
-      // Use simple Transaction API with wallet as initiator
-      // Cast to any to bypass type mismatch between wallet API versions
+      // Use the wallet from hook - cast to any to bypass type issues
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const tx = new Transaction({ initiator: wallet as any });
 
-      // Send to script address
+      // Send to script address with commitment in metadata
       tx.sendLovelace(scriptAddress, lovelaceAmount);
 
-      // Add metadata
+      // Include Midnight commitment and ZK proof reference in metadata (CIP-20)
       tx.setMetadata(674, {
         msg: ['StakeDrop ZK Deposit'],
         commitment: depositData.commitment.hex.slice(0, 64),
