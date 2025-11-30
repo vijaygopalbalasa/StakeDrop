@@ -147,7 +147,7 @@ export function DepositForm() {
       setLoading(true);
       setError(null);
 
-      const { Transaction } = await import('@meshsdk/core');
+      const { Transaction, BlockfrostProvider } = await import('@meshsdk/core');
       const lovelaceAmount = parseAda(amount).toString();
 
       // Get the pool validator script address for the current network
@@ -161,9 +161,14 @@ export function DepositForm() {
         commitment: depositData.commitment.hex,
       });
 
-      // Use the wallet from hook - cast to any to bypass type issues
+      // Create a Blockfrost provider for the network
+      // MeshJS needs proper network configuration to avoid address encoding issues
+      const blockfrostKey = process.env.NEXT_PUBLIC_BLOCKFROST_PROJECT_ID || '';
+      const provider = new BlockfrostProvider(blockfrostKey);
+
+      // Use the wallet from hook with explicit provider to ensure proper UTXO fetching
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const tx = new Transaction({ initiator: wallet as any });
+      const tx = new Transaction({ initiator: wallet as any, fetcher: provider });
 
       // Send to script address with commitment in metadata
       tx.sendLovelace(scriptAddress, lovelaceAmount);

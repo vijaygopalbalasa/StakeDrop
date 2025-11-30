@@ -11,7 +11,7 @@ const nextConfig = {
       layers: true,
     };
 
-    // Fix for WASM files
+    // Fix for WASM files - ensure proper loading
     config.module.rules.push({
       test: /\.wasm$/,
       type: 'webassembly/async',
@@ -26,7 +26,15 @@ const nextConfig = {
         tls: false,
         crypto: false,
       };
+
+      // Prevent webpack from trying to polyfill these in the browser
+      config.resolve.alias = {
+        ...config.resolve.alias,
+      };
     }
+
+    // Ensure CSL WASM files are properly handled
+    config.output.webassemblyModuleFilename = 'static/wasm/[modulehash].wasm';
 
     return config;
   },
@@ -37,6 +45,15 @@ const nextConfig = {
   // Skip ESLint during build
   eslint: {
     ignoreDuringBuilds: true,
+  },
+  // Ensure environment variables are available at runtime
+  env: {
+    NEXT_PUBLIC_NETWORK: process.env.NEXT_PUBLIC_NETWORK,
+    NEXT_PUBLIC_CARDANO_NETWORK: process.env.NEXT_PUBLIC_CARDANO_NETWORK,
+    NEXT_PUBLIC_BLOCKFROST_PROJECT_ID: process.env.NEXT_PUBLIC_BLOCKFROST_PROJECT_ID,
+    NEXT_PUBLIC_POOL_SCRIPT_ADDRESS_PREVIEW: process.env.NEXT_PUBLIC_POOL_SCRIPT_ADDRESS_PREVIEW,
+    NEXT_PUBLIC_POOL_VALIDATOR_HASH: process.env.NEXT_PUBLIC_POOL_VALIDATOR_HASH,
+    NEXT_PUBLIC_ADMIN_ADDRESS: process.env.NEXT_PUBLIC_ADMIN_ADDRESS,
   },
 };
 
