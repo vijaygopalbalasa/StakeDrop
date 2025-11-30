@@ -14,7 +14,7 @@ Built for the Cardano Hackathon powered by Hack2Skills
 
 ## Live Demo
 
-**Frontend**: [StakeDrop on Vercel](https://stake-drop.vercel.app) *(Deploy to see live)*
+**Frontend**: [StakeDrop on Vercel](https://frontend-livid-one-78.vercel.app)
 
 **Smart Contract**: Deployed on Cardano Preview Testnet
 - **Validator Hash**: `b70f951d843a747f8a41e81aaa107a5f427b8e4a8b2124048e9030c7`
