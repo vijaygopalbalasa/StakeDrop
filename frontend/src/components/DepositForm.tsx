@@ -61,6 +61,12 @@ export function DepositForm() {
   useEffect(() => {
     isMidnightAvailable().then(setMidnightAvailable);
     setMyDeposits(getStoredDeposits());
+
+    // Validate configuration on mount
+    const blockfrostKey = process.env.NEXT_PUBLIC_BLOCKFROST_PROJECT_ID;
+    if (!blockfrostKey) {
+      console.warn('[StakeDrop] WARNING: NEXT_PUBLIC_BLOCKFROST_PROJECT_ID is not configured!');
+    }
   }, []);
 
   // Refresh deposits when step changes to complete
@@ -171,10 +177,12 @@ export function DepositForm() {
       });
 
       // Create Blockfrost provider for UTXO fetching
-      const blockfrostKey = process.env.NEXT_PUBLIC_BLOCKFROST_PROJECT_ID || '';
+      const blockfrostKey = process.env.NEXT_PUBLIC_BLOCKFROST_PROJECT_ID;
       if (!blockfrostKey) {
-        throw new Error('Blockfrost API key not configured');
+        throw new Error('Blockfrost API key not configured. Please set NEXT_PUBLIC_BLOCKFROST_PROJECT_ID environment variable.');
       }
+
+      console.log('[StakeDrop] Using Blockfrost key:', blockfrostKey.substring(0, 10) + '...');
       const provider = new BlockfrostProvider(blockfrostKey);
 
       // Get wallet change address
