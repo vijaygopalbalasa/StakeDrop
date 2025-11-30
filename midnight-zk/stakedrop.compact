@@ -1,0 +1,149 @@
+// StakeDrop - Privacy-Preserving No-Loss Lottery
+// Copyright (C) 2024 StakeDrop
+// SPDX-License-Identifier: Apache-2.0
+
+pragma language_version >= 0.16 && <= 0.18;
+
+import CompactStandardLibrary;
+
+// ============================================
+// Ledger State (On-chain public state)
+// ============================================
+
+// Pool status enum
+export enum PoolStatus {
+  OPEN,
+  LOCKED,
+  DISTRIBUTED
+}
+
+// Current epoch/round identifier
+export ledger epochId: Counter;
+
+// Pool status
+export ledger poolStatus: PoolStatus;
+
+// Participant tracking
+export ledger participantCount: Counter;
+
+// Winner commitment (revealed after selection)
+export ledger winnerCommitment: Bytes<32>;
+
+// ============================================
+// Constructor
+// ============================================
+
+constructor() {
+  poolStatus = PoolStatus.OPEN;
+  epochId.increment(1);
+}
+
+// ============================================
+// Witness Functions (Private data providers)
+// ============================================
+
+// Provide the secret for commitment generation
+witness localSecret(): Bytes<32>;
+
+// Provide the deposit amount as bytes
+witness localAmountBytes(): Bytes<32>;
+
+// ============================================
+// Circuits (ZK Proof Generation + State Changes)
+// ============================================
+
+// Initialize a new epoch/pool (admin action)
+export circuit initializeEpoch(): [] {
+  // Check pool is not locked
+  assert(poolStatus != PoolStatus.LOCKED, "Pool is currently locked");
+
+  // Increment epoch
+  epochId.increment(1);
+
+  // Reset state
+  poolStatus = PoolStatus.OPEN;
+  winnerCommitment = pad(32, "");
+}
+
+// Compute commitment: hash(prefix || secret || amount)
+export circuit computeCommitment(secret: Bytes<32>, amount: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([pad(32, "stakedrop:"), secret, amount]);
+}
+
+// Register a deposit commitment (simplified - just increments counter)
+export circuit registerDeposit(commitment: Bytes<32>): [] {
+  // Pool must be open
+  assert(poolStatus == PoolStatus.OPEN, "Pool is locked for deposits");
+
+  // Get private inputs from witness
+  const secret = localSecret();
+  const amount = localAmountBytes();
+
+  // Generate commitment: hash(prefix || secret || amount)
+  const expectedCommitment = persistentHash<Vector<3, Bytes<32>>>([pad(32, "stakedrop:"), secret, amount]);
+
+  // Verify commitment matches secret+amount (ZK proof)
+  assert(commitment == expectedCommitment, "Invalid commitment");
+
+  // Increment participant count
+  participantCount.increment(1);
+}
+
+// Lock the pool (admin action - no more deposits)
+export circuit lockPool(): [] {
+  // Require at least 2 participants
+  assert(participantCount.read() >= 2, "Need at least 2 participants");
+
+  poolStatus = PoolStatus.LOCKED;
+}
+
+// Declare the winner (admin action)
+export circuit declareWinner(winner: Bytes<32>): [] {
+  assert(poolStatus == PoolStatus.LOCKED, "Pool must be locked");
+
+  winnerCommitment = disclose(winner);
+}
+
+// Prove you are the winner - returns claim token hash
+export circuit proveWinner(commitment: Bytes<32>): Bytes<32> {
+  assert(poolStatus == PoolStatus.LOCKED, "Pool must be locked");
+
+  // Get private inputs
+  const secret = localSecret();
+  const amount = localAmountBytes();
+
+  // Verify ownership: regenerate commitment from secret+amount
+  const computedCommitment = persistentHash<Vector<3, Bytes<32>>>([pad(32, "stakedrop:"), secret, amount]);
+  assert(computedCommitment == commitment, "Not commitment owner");
+
+  // Verify this is the winner commitment
+  assert(commitment == winnerCommitment, "Not the winner");
+
+  // Return claim token: hash(commitment || "winner")
+  return persistentHash<Vector<2, Bytes<32>>>([commitment, pad(32, "winner")]);
+}
+
+// Prove you are a loser (participant but not winner) - returns claim token hash
+export circuit proveLoser(commitment: Bytes<32>): Bytes<32> {
+  assert(poolStatus == PoolStatus.LOCKED, "Pool must be locked");
+
+  // Get private inputs
+  const secret = localSecret();
+  const amount = localAmountBytes();
+
+  // Verify ownership: regenerate commitment from secret+amount
+  const computedCommitment = persistentHash<Vector<3, Bytes<32>>>([pad(32, "stakedrop:"), secret, amount]);
+  assert(computedCommitment == commitment, "Not commitment owner");
+
+  // Verify NOT the winner
+  assert(commitment != winnerCommitment, "You are the winner, use proveWinner");
+
+  // Return claim token: hash(commitment || "loser")
+  return persistentHash<Vector<2, Bytes<32>>>([commitment, pad(32, "loser")]);
+}
+
+// Mark pool as distributed (admin action after all withdrawals)
+export circuit markDistributed(): [] {
+  assert(poolStatus == PoolStatus.LOCKED, "Pool must be locked");
+  poolStatus = PoolStatus.DISTRIBUTED;
+}

@@ -12,7 +12,7 @@ import {
   isMidnightAvailable,
   MidnightCommitment,
 } from '@/lib/midnight';
-import { Shield, AlertCircle, CheckCircle, ExternalLink, Lock, Wallet, Zap, Fingerprint } from 'lucide-react';
+import { Shield, AlertCircle, CheckCircle, ExternalLink, Lock, Wallet, Zap, Fingerprint, History, ChevronDown, ChevronUp } from 'lucide-react';
 
 type DepositStep = 'input' | 'signing' | 'proving' | 'confirming' | 'registering' | 'complete' | 'error';
 
@@ -25,6 +25,25 @@ interface DepositData {
   midnightTxHash?: string;
 }
 
+interface StoredDeposit {
+  commitment: string;
+  amount: string;
+  timestamp: number;
+  epochId: number;
+  txHash?: string;
+}
+
+// Get stored deposits from localStorage
+function getStoredDeposits(): StoredDeposit[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const stored = localStorage.getItem('stakedrop_pool_deposits');
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+}
+
 export function DepositForm() {
   const { connected, address, balance, wallet, network } = useCardanoWallet();
   const { state, canDeposit, refresh } = usePool();
@@ -35,11 +54,21 @@ export function DepositForm() {
   const [txHash, setTxHash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [midnightAvailable, setMidnightAvailable] = useState<boolean | null>(null);
+  const [myDeposits, setMyDeposits] = useState<StoredDeposit[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
 
-  // Check Midnight availability on mount
+  // Check Midnight availability and load deposits on mount
   useEffect(() => {
     isMidnightAvailable().then(setMidnightAvailable);
+    setMyDeposits(getStoredDeposits());
   }, []);
+
+  // Refresh deposits when step changes to complete
+  useEffect(() => {
+    if (step === 'complete') {
+      setMyDeposits(getStoredDeposits());
+    }
+  }, [step]);
 
   const getExplorerUrl = (hash: string) => {
     const baseUrls: Record<string, string> = {
@@ -129,6 +158,8 @@ export function DepositForm() {
       tx.sendLovelace(scriptAddress, lovelaceAmount);
 
       // Include Midnight commitment and ZK proof reference in metadata (CIP-20)
+      // Note: Cardano metadata only supports strings, integers, bytes, lists, and maps
+      // Boolean values must be converted to strings
       tx.setMetadata(674, {
         msg: ['StakeDrop ZK Deposit'],
         commitment: depositData.commitment.hex.slice(0, 64),
@@ -136,7 +167,7 @@ export function DepositForm() {
         amount: lovelaceAmount,
         zkProof: depositData.proof?.slice(0, 64) || 'simulated',
         midnight: midnightAvailable ? 'connected' : 'simulated',
-        walletDerived: true, // Mark as wallet-derived for tracking
+        walletDerived: 'true',
       });
 
       const unsignedTx = await tx.build();
@@ -169,6 +200,7 @@ export function DepositForm() {
         amount: parseAda(amount).toString(),
         timestamp: Date.now(),
         epochId: state.epochId,
+        txHash: txHashResult,
       });
 
       await refresh();
@@ -294,6 +326,85 @@ export function DepositForm() {
               <Fingerprint className="w-5 h-5" />
               Sign & Generate Commitment
             </button>
+
+            {/* Deposit History */}
+            {myDeposits.length > 0 && (
+              <div className="mt-6 border-t-4 border-brutal-black pt-6">
+                <button
+                  onClick={() => setShowHistory(!showHistory)}
+                  className="w-full flex items-center justify-between p-3 bg-brutal-cream border-4 border-brutal-black hover:bg-accent-yellow transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <History className="w-5 h-5" />
+                    <span className="font-bold uppercase">Your Deposits ({myDeposits.length})</span>
+                  </div>
+                  {showHistory ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                </button>
+
+                {showHistory && (
+                  <div className="mt-3 space-y-3">
+                    {myDeposits.map((deposit, index) => {
+                      const amountAda = deposit.amount.includes('.')
+                        ? parseFloat(deposit.amount)
+                        : Number(deposit.amount) / 1_000_000;
+                      const date = new Date(deposit.timestamp);
+
+                      return (
+                        <div
+                          key={index}
+                          className="p-4 bg-brutal-white border-4 border-brutal-black"
+                        >
+                          <div className="flex justify-between items-start mb-2">
+                            <div>
+                              <span className="font-bold text-lg">{amountAda.toFixed(2)} ADA</span>
+                              <span className="text-sm text-gray-600 ml-2">Epoch #{deposit.epochId}</span>
+                            </div>
+                            <div className="flex items-center gap-1 text-xs bg-accent-green px-2 py-1 border-2 border-brutal-black">
+                              <CheckCircle className="w-3 h-3" />
+                              Deposited
+                            </div>
+                          </div>
+                          <div className="text-xs text-gray-500 mb-2">
+                            {date.toLocaleDateString()} {date.toLocaleTimeString()}
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="font-mono text-xs text-gray-500 truncate max-w-[200px]">
+                              {deposit.commitment.slice(0, 16)}...
+                            </span>
+                            {deposit.txHash && (
+                              <a
+                                href={getExplorerUrl(deposit.txHash)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1 text-xs text-accent-blue hover:underline"
+                              >
+                                <ExternalLink className="w-3 h-3" />
+                                View TX
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* Total deposited */}
+                    <div className="p-4 bg-accent-blue text-white border-4 border-brutal-black">
+                      <div className="flex justify-between items-center">
+                        <span className="font-bold uppercase">Total Deposited</span>
+                        <span className="font-bold text-xl">
+                          {myDeposits.reduce((sum, d) => {
+                            const amt = d.amount.includes('.')
+                              ? parseFloat(d.amount)
+                              : Number(d.amount) / 1_000_000;
+                            return sum + amt;
+                          }, 0).toFixed(2)} ADA
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </>
         )}
 

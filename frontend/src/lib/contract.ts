@@ -22,13 +22,14 @@ export const POOL_VALIDATOR_HASH =
   'b70f951d843a747f8a41e81aaa107a5f427b8e4a8b2124048e9030c7';
 
 // Script addresses per network (from environment or defaults)
+// Deployed to Preview testnet: b5c867b43c5e11fc18bb3e539ab53e01b17428ba1c0e19ed098c3a8940255ceb
 const POOL_SCRIPT_ADDRESSES: Record<string, string> = {
   preview:
     process.env.NEXT_PUBLIC_POOL_SCRIPT_ADDRESS_PREVIEW ||
-    'addr_test1wzmslj5wvgs6jr039puqx42qfa06snu3j29cvyjpywjqc8sr9kww5',
+    'addr_test1wzy5mhvldymk7c6xv8590uthxz43ckuvpcdz46cgfqs96ssw3ntxc',
   preprod:
     process.env.NEXT_PUBLIC_POOL_SCRIPT_ADDRESS_PREPROD ||
-    'addr_test1wzmslj5wvgs6jr039puqx42qfa06snu3j29cvyjpywjqc8sr9kww5',
+    'addr_test1wzy5mhvldymk7c6xv8590uthxz43ckuvpcdz46cgfqs96ssw3ntxc',
   mainnet: process.env.NEXT_PUBLIC_POOL_SCRIPT_ADDRESS_MAINNET || '',
 };
 
@@ -300,3 +301,27 @@ export function debugLog(message: string, data?: unknown): void {
 
 // Re-export for convenience
 export { POOL_VALIDATOR_CBOR };
+
+/**
+ * Get explorer URL for a transaction
+ */
+export function getExplorerTxUrl(txHash: string, network: 'mainnet' | 'preview' | 'preprod' = CARDANO_NETWORK): string {
+  const explorers: Record<string, string> = {
+    mainnet: 'https://cardanoscan.io',
+    preview: 'https://preview.cardanoscan.io',
+    preprod: 'https://preprod.cardanoscan.io',
+  };
+  return `${explorers[network]}/transaction/${txHash}`;
+}
+
+/**
+ * Get explorer URL for an address
+ */
+export function getExplorerAddressUrl(address: string, network: 'mainnet' | 'preview' | 'preprod' = CARDANO_NETWORK): string {
+  const explorers: Record<string, string> = {
+    mainnet: 'https://cardanoscan.io',
+    preview: 'https://preview.cardanoscan.io',
+    preprod: 'https://preprod.cardanoscan.io',
+  };
+  return `${explorers[network]}/address/${address}`;
+}

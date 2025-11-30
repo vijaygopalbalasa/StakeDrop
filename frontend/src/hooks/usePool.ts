@@ -3,14 +3,20 @@
 import { useState, useEffect, useCallback } from 'react';
 import { PoolState, PoolStatus } from '@/types';
 import {
-  getCurrentEpoch,
+  getCurrentEpoch as getEpochFromBlockfrost,
   getEpochTimeRemaining,
   isBlockfrostConfigured,
   EpochInfo,
   getAddressUtxos,
 } from '@/lib/blockfrost';
-import { getPoolScriptAddress } from '@/lib/contract';
+import { getPoolScriptAddress, PoolStatus as ContractPoolStatus } from '@/lib/contract';
 import { NETWORK } from '@/lib/constants';
+import {
+  getPoolStateFromChain,
+  fetchPoolUTxOs,
+  isBlockfrostConfigured as isBlockchainConfigured,
+  getTxExplorerUrl,
+} from '@/lib/blockchain';
 
 // Storage keys for pool state (localStorage for demo)
 const POOL_STORAGE_KEY = 'stakedrop_pool_deposits';
@@ -21,6 +27,7 @@ interface StoredDeposit {
   amount: string; // lovelace as string for JSON serialization
   timestamp: number;
   epochId: number;
+  txHash?: string; // Transaction hash for explorer link
 }
 
 interface StoredPoolStatus {
@@ -124,66 +131,87 @@ export function usePool() {
 
       // Check if Blockfrost is configured
       if (!isBlockfrostConfigured()) {
-        setError('Blockfrost API not configured. Please set NEXT_PUBLIC_BLOCKFROST_API_KEY');
+        setError('Blockfrost API not configured. Please set NEXT_PUBLIC_BLOCKFROST_PROJECT_ID');
         setLoading(false);
         return;
       }
 
       // Fetch current epoch from Cardano blockchain
-      const currentEpoch = await getCurrentEpoch();
+      const currentEpoch = await getEpochFromBlockfrost();
       setEpochInfo(currentEpoch);
 
       // Get the pool script address
       const scriptAddress = getPoolScriptAddress(NETWORK as 'mainnet' | 'preview' | 'preprod');
 
-      // Try to fetch UTxOs from the pool script address on blockchain
+      // Try to fetch real pool state from blockchain first
       let totalDeposited = BigInt(0);
       let participantCount = 0;
+      let chainStatus: PoolStatus | null = null;
+      let chainWinnerCommitment: string | null = null;
+      let chainYieldAmount = BigInt(0);
 
       try {
-        const utxos = await getAddressUtxos(scriptAddress);
+        // Try to get pool state from chain (with inline datum parsing)
+        const chainPoolState = await getPoolStateFromChain();
 
-        // Sum up all lovelace in the script address
-        for (const utxo of utxos) {
-          const lovelaceAmount = utxo.amount.find(a => a.unit === 'lovelace');
-          if (lovelaceAmount) {
-            totalDeposited += BigInt(lovelaceAmount.quantity);
-            participantCount++; // Each UTxO represents a deposit
+        if (chainPoolState && chainPoolState.isValid) {
+          // Use data from blockchain datum
+          console.log('Using pool state from blockchain datum');
+          totalDeposited = chainPoolState.datum.totalDeposited;
+          participantCount = chainPoolState.datum.participantCount;
+          chainStatus = chainPoolState.datum.status as unknown as PoolStatus;
+          chainWinnerCommitment = chainPoolState.datum.winnerCommitment || null;
+          chainYieldAmount = chainPoolState.datum.yieldAmount;
+        } else {
+          // Fallback: sum UTxOs at script address
+          const utxos = await getAddressUtxos(scriptAddress);
+
+          for (const utxo of utxos) {
+            const lovelaceAmount = utxo.amount.find(a => a.unit === 'lovelace');
+            if (lovelaceAmount) {
+              totalDeposited += BigInt(lovelaceAmount.quantity);
+              participantCount++;
+            }
           }
-        }
 
-        console.log('Pool state from blockchain:', {
-          scriptAddress,
-          utxoCount: utxos.length,
-          totalDeposited: totalDeposited.toString(),
-          participantCount,
-        });
+          console.log('Pool state from UTxO sum:', {
+            scriptAddress,
+            utxoCount: utxos.length,
+            totalDeposited: totalDeposited.toString(),
+            participantCount,
+          });
+        }
       } catch (utxoError) {
         // Fall back to localStorage if blockchain query fails
-        console.log('Falling back to localStorage for pool state');
+        console.log('Falling back to localStorage for pool state:', utxoError);
         const deposits = getStoredDeposits();
         const localState = calculatePoolStateFromDeposits(deposits, currentEpoch.epoch);
         totalDeposited = localState.totalDeposited;
         participantCount = localState.participantCount;
       }
 
-      // Get admin-controlled pool status from localStorage
-      // Default to Collecting if no status is stored
-      const storedStatus = getStoredPoolStatus();
+      // Determine pool status (chain data takes priority, then admin localStorage)
       let status: PoolStatus;
-      let winnerCommitment: string | null = null;
+      let winnerCommitment: string | null = chainWinnerCommitment;
 
-      if (storedStatus && storedStatus.epochId === currentEpoch.epoch) {
-        // Use admin-set status for current epoch
-        status = storedStatus.status;
-        winnerCommitment = storedStatus.winnerCommitment;
+      if (chainStatus !== null) {
+        // Use status from blockchain
+        status = chainStatus;
       } else {
-        // New epoch or no status - default to Collecting
-        status = PoolStatus.Collecting;
+        // Fall back to admin-controlled status from localStorage
+        const storedStatus = getStoredPoolStatus();
+        if (storedStatus && storedStatus.epochId === currentEpoch.epoch) {
+          status = storedStatus.status;
+          winnerCommitment = storedStatus.winnerCommitment;
+        } else {
+          status = PoolStatus.Collecting;
+        }
       }
 
-      // Estimate yield based on pool size
-      const yieldAmount = estimateYield(totalDeposited);
+      // Calculate yield (use chain value or estimate)
+      const yieldAmount = chainYieldAmount > BigInt(0)
+        ? chainYieldAmount
+        : estimateYield(totalDeposited);
 
       // Build pool state
       const poolState: PoolState = {

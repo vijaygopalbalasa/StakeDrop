@@ -11,9 +11,9 @@ export function HowItWorks() {
       icon: Lock,
       color: 'bg-accent-yellow',
       details: [
-        'Sign a message to generate your secret',
-        'Your deposit amount is hidden',
-        'Your wallet is your key - no file needed!',
+        'Sign a message with your wallet',
+        'Your deposit amount stays hidden',
+        'Funds secured by zero-knowledge proofs',
       ],
     },
     {

@@ -29,7 +29,7 @@ export function Features() {
     {
       icon: Lock,
       title: 'Self-Custody',
-      description: 'Only you can access your funds with your secret file. No third parties, no custodians.',
+      description: 'Your wallet signature is your key. Only you can withdraw your funds - no third parties, no custodians.',
       color: 'bg-accent-yellow',
     },
     {

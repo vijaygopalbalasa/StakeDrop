@@ -1,10 +1,16 @@
 /**
  * Blockfrost API Service
  * Fetches real blockchain data from Cardano network
+ * Falls back to Koios API if Blockfrost fails
  */
+
+import * as Koios from './koios';
 
 const BLOCKFROST_PROJECT_ID = process.env.NEXT_PUBLIC_BLOCKFROST_PROJECT_ID || '';
 const NETWORK = process.env.NEXT_PUBLIC_NETWORK || 'preview';
+
+// Track if Blockfrost is working
+let useKoiosFallback = false;
 
 // Blockfrost API base URLs
 const BLOCKFROST_URLS: Record<string, string> = {
@@ -167,9 +173,40 @@ async function blockfrostFetch<T>(endpoint: string): Promise<T> {
 
 /**
  * Get current epoch information
+ * Falls back to Koios if Blockfrost fails
  */
 export async function getCurrentEpoch(): Promise<EpochInfo> {
-  return blockfrostFetch<EpochInfo>('/epochs/latest');
+  // If we know Blockfrost is down, go straight to Koios
+  if (useKoiosFallback) {
+    return getEpochFromKoios();
+  }
+
+  try {
+    return await blockfrostFetch<EpochInfo>('/epochs/latest');
+  } catch (error) {
+    console.warn('Blockfrost failed, falling back to Koios:', error);
+    useKoiosFallback = true;
+    return getEpochFromKoios();
+  }
+}
+
+/**
+ * Get epoch info from Koios and convert to Blockfrost format
+ */
+async function getEpochFromKoios(): Promise<EpochInfo> {
+  const koiosEpoch = await Koios.getCurrentEpoch();
+  return {
+    epoch: koiosEpoch.epoch_no,
+    start_time: koiosEpoch.start_time,
+    end_time: koiosEpoch.end_time,
+    first_block_time: koiosEpoch.first_block_time,
+    last_block_time: koiosEpoch.last_block_time,
+    block_count: koiosEpoch.blk_count,
+    tx_count: koiosEpoch.tx_count,
+    output: koiosEpoch.out_sum,
+    fees: koiosEpoch.fees,
+    active_stake: koiosEpoch.active_stake,
+  };
 }
 
 /**

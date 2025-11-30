@@ -26,7 +26,20 @@
  * 5. Proofs submitted to Cardano for on-chain verification
  *
  * PHASE 4: Wallet-derived secrets for improved UX
+ *
+ * REAL MIDNIGHT INTEGRATION:
+ * When the proof server is running and Lace wallet is connected, this module
+ * automatically uses real ZK proofs from the Midnight network. The integration
+ * includes:
+ * - Lace DApp Connector API for wallet operations
+ * - Midnight Proof Server for ZK proof generation
+ * - StakeDrop Compact contract for on-chain state
+ *
+ * See midnight-real.ts for the full implementation.
  */
+
+// Re-export real Midnight integration
+export * from './midnight-real';
 
 // =============================================================================
 // ENVIRONMENT CONFIGURATION
@@ -192,12 +205,10 @@ export async function generateWalletDerivedCommitment(
   // Generate the deterministic signing message
   const message = getSigningMessage(epochId, amount);
 
-  // Convert message to hex for wallet signing
-  const messageHex = bytesToHex(new TextEncoder().encode(message));
-
-  // Request wallet signature
+  // MeshJS signData expects a plain string message, NOT hex-encoded
+  // The wallet will handle the CIP-8 encoding internally
   debugLog('Requesting wallet signature for message');
-  const { signature } = await wallet.signData(address, messageHex);
+  const { signature } = await wallet.signData(message, address);
 
   // Derive secret from signature
   const secret = await deriveSecretFromSignature(signature);

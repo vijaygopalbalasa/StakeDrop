@@ -23,7 +23,9 @@ import {
   Zap,
   Shield,
   Fingerprint,
+  RefreshCw,
 } from 'lucide-react';
+import { isCommitmentOnChain, fetchDepositsFromBlockchain, OnChainDeposit } from '@/lib/blockchain';
 
 interface DepositEntry {
   commitment: string;
@@ -55,20 +57,38 @@ export function WithdrawForm() {
   const { connected, wallet, address, network } = useCardanoWallet();
   const { state, canWithdraw, refresh } = usePool();
   const [deposits, setDeposits] = useState<DepositEntry[]>([]);
+  const [onChainDeposits, setOnChainDeposits] = useState<OnChainDeposit[]>([]);
   const [selectedDeposit, setSelectedDeposit] = useState<DepositEntry | null>(null);
   const [secretData, setSecretData] = useState<SecretData | null>(null);
   const [step, setStep] = useState<WithdrawStep>('select');
   const [loading, setLoading] = useState(false);
+  const [loadingOnChain, setLoadingOnChain] = useState(false);
   const [isWinner, setIsWinner] = useState<boolean | null>(null);
   const [zkProof, setZkProof] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [midnightAvailable, setMidnightAvailable] = useState<boolean | null>(null);
+  const [commitmentVerified, setCommitmentVerified] = useState<boolean | null>(null);
+
+  // Load on-chain deposits
+  const loadOnChainDeposits = async () => {
+    try {
+      setLoadingOnChain(true);
+      const chainDeposits = await fetchDepositsFromBlockchain();
+      setOnChainDeposits(chainDeposits);
+      console.log('Loaded on-chain deposits for withdrawal:', chainDeposits.length);
+    } catch (err) {
+      console.error('Failed to fetch on-chain deposits:', err);
+    } finally {
+      setLoadingOnChain(false);
+    }
+  };
 
   // Check Midnight availability and load deposits on mount
   useEffect(() => {
     isMidnightAvailable().then(setMidnightAvailable);
     setDeposits(getStoredDeposits());
+    loadOnChainDeposits();
   }, []);
 
   const getExplorerUrl = (hash: string) => {
@@ -87,6 +107,7 @@ export function WithdrawForm() {
       setLoading(true);
       setError(null);
       setSelectedDeposit(deposit);
+      setCommitmentVerified(null);
       setStep('signing');
 
       // Regenerate secret from wallet signature
@@ -106,6 +127,11 @@ export function WithdrawForm() {
         setLoading(false);
         return;
       }
+
+      // Verify commitment exists on-chain
+      const onChain = onChainDeposits.some(d => d.commitment === deposit.commitment);
+      setCommitmentVerified(onChain);
+      console.log('Commitment on-chain verification:', onChain, deposit.commitment);
 
       setSecretData({
         secret,
@@ -176,14 +202,15 @@ export function WithdrawForm() {
       tx.sendLovelace(address, totalLovelace.toString());
 
       // Include ZK proof and commitment in metadata
+      // Note: Cardano metadata only supports strings, integers, bytes, lists, and maps
       tx.setMetadata(674, {
         msg: [isWinner ? 'StakeDrop ZK Winner Withdrawal' : 'StakeDrop ZK Withdrawal'],
         commitment: secretData.commitment.hex.slice(0, 64),
         epoch: secretData.epochId,
-        isWinner: isWinner || false,
+        isWinner: isWinner ? 'true' : 'false',
         zkProof: zkProof.slice(0, 64),
         midnight: midnightAvailable ? 'verified' : 'simulated',
-        walletDerived: true,
+        walletDerived: 'true',
       });
 
       const unsignedTx = await tx.build();
@@ -216,7 +243,9 @@ export function WithdrawForm() {
     setError(null);
     setTxHash(null);
     setStep('select');
+    setCommitmentVerified(null);
     setDeposits(getStoredDeposits());
+    loadOnChainDeposits();
   };
 
   const principalAmount = secretData ? parseAda(secretData.amount) : BigInt(0);
@@ -476,6 +505,15 @@ export function WithdrawForm() {
                 <div className="flex justify-between">
                   <span className="font-bold uppercase text-sm">Epoch</span>
                   <span className="font-mono">#{secretData.epochId}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="font-bold uppercase text-sm">On-Chain</span>
+                  <span className={`flex items-center gap-1 font-bold text-sm ${
+                    commitmentVerified ? 'text-accent-green' : 'text-accent-yellow'
+                  }`}>
+                    <CheckCircle className="w-4 h-4" />
+                    {commitmentVerified ? 'Verified' : 'Local Only'}
+                  </span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="font-bold uppercase text-sm">ZK Proof</span>

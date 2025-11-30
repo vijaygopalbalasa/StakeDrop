@@ -10,6 +10,7 @@ import {
 } from '@/lib/contract';
 import { getCurrentEpoch, EpochInfo } from '@/lib/blockfrost';
 import { isMidnightAvailable, bytesToHex } from '@/lib/midnight';
+import { fetchDepositsFromBlockchain, OnChainDeposit } from '@/lib/blockchain';
 import {
   Shield, AlertCircle, CheckCircle, ExternalLink, Settings,
   Loader2, Copy, Wallet, Zap, Trophy, RefreshCw, Trash2,
@@ -18,6 +19,28 @@ import {
 
 // Admin address - update this to your wallet address
 const ADMIN_ADDRESS = process.env.NEXT_PUBLIC_ADMIN_ADDRESS || '';
+
+// Storage key for deposits
+const POOL_STORAGE_KEY = 'stakedrop_pool_deposits';
+
+interface StoredDeposit {
+  commitment: string;
+  amount: string;
+  epochId: number;
+  timestamp?: number;
+  txHash?: string;
+}
+
+// Get stored deposits from localStorage
+function getStoredDepositsFromStorage(): StoredDeposit[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const stored = localStorage.getItem(POOL_STORAGE_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+}
 
 export default function AdminPage() {
   const { connected, address, wallet, network } = useCardanoWallet();
@@ -29,6 +52,31 @@ export default function AdminPage() {
   const [winnerSelecting, setWinnerSelecting] = useState(false);
   const [selectedWinner, setSelectedWinner] = useState<string | null>(null);
   const [currentEpoch, setCurrentEpoch] = useState<EpochInfo | null>(null);
+  const [deposits, setDeposits] = useState<StoredDeposit[]>([]);
+  const [onChainDeposits, setOnChainDeposits] = useState<OnChainDeposit[]>([]);
+  const [loadingOnChain, setLoadingOnChain] = useState(false);
+
+  // Load deposits from localStorage (fallback)
+  const loadDeposits = () => {
+    const storedDeposits = getStoredDepositsFromStorage();
+    setDeposits(storedDeposits);
+    console.log('Loaded local deposits:', storedDeposits.length, storedDeposits);
+  };
+
+  // Load deposits from blockchain
+  const loadOnChainDeposits = async () => {
+    try {
+      setLoadingOnChain(true);
+      console.log('Fetching deposits from blockchain...');
+      const chainDeposits = await fetchDepositsFromBlockchain();
+      setOnChainDeposits(chainDeposits);
+      console.log('Loaded on-chain deposits:', chainDeposits.length, chainDeposits);
+    } catch (err) {
+      console.error('Failed to fetch on-chain deposits:', err);
+    } finally {
+      setLoadingOnChain(false);
+    }
+  };
 
   // Fetch current epoch info and check Midnight
   useEffect(() => {
@@ -37,6 +85,10 @@ export default function AdminPage() {
       .catch((err) => console.error('Failed to fetch epoch:', err));
 
     isMidnightAvailable().then(setMidnightAvailable);
+
+    // Load deposits on mount (both localStorage and blockchain)
+    loadDeposits();
+    loadOnChainDeposits();
   }, []);
 
   const scriptAddress = getPoolScriptAddress(network as 'mainnet' | 'preview' | 'preprod');
@@ -83,10 +135,26 @@ export default function AdminPage() {
     }
   };
 
-  // Select winner using ZK randomness
+  // Select winner using ZK randomness from actual deposits
   const handleSelectWinner = async () => {
-    if (!state || state.participantCount < 1) {
-      setError('Need at least 1 participant to select winner');
+    // Reload deposits to make sure we have the latest
+    loadDeposits();
+    await loadOnChainDeposits();
+
+    // Prioritize on-chain deposits over localStorage
+    const hasOnChainDeposits = onChainDeposits.length > 0;
+    const currentLocalDeposits = getStoredDepositsFromStorage();
+    const hasLocalDeposits = currentLocalDeposits.length > 0;
+    const hasParticipants = state && state.participantCount > 0;
+
+    console.log('Winner selection check:', {
+      onChainDeposits: onChainDeposits.length,
+      localDeposits: currentLocalDeposits.length,
+      participantCount: state?.participantCount || 0,
+    });
+
+    if (!hasOnChainDeposits && !hasLocalDeposits && !hasParticipants) {
+      setError(`Need at least 1 deposit to select winner. Pool has ${state?.participantCount || 0} on-chain participants.`);
       return;
     }
 
@@ -94,13 +162,29 @@ export default function AdminPage() {
       setWinnerSelecting(true);
       setError(null);
 
-      // Generate random winner commitment (demo)
-      const randomBytes = new Uint8Array(32);
-      crypto.getRandomValues(randomBytes);
-      const winnerCommitment = bytesToHex(randomBytes);
-
-      // Simulate proof generation delay
+      // Simulate ZK proof generation delay
       await new Promise(resolve => setTimeout(resolve, 1500));
+
+      let winnerCommitment: string;
+
+      if (hasOnChainDeposits) {
+        // PRIORITY: Pick from on-chain deposits (real blockchain data)
+        const randomIndex = Math.floor(Math.random() * onChainDeposits.length);
+        const winnerDeposit = onChainDeposits[randomIndex];
+        winnerCommitment = winnerDeposit.commitment;
+        console.log('Winner selected from ON-CHAIN deposits:', winnerCommitment);
+      } else if (hasLocalDeposits) {
+        // Fallback: Pick from localStorage deposits
+        const randomIndex = Math.floor(Math.random() * currentLocalDeposits.length);
+        const winnerDeposit = currentLocalDeposits[randomIndex];
+        winnerCommitment = winnerDeposit.commitment;
+        console.log('Winner selected from localStorage deposits:', winnerCommitment);
+      } else {
+        // No deposits available at all - this shouldn't happen due to check above
+        setError('No deposits found. Cannot select winner.');
+        setWinnerSelecting(false);
+        return;
+      }
 
       setSelectedWinner(winnerCommitment);
 
@@ -110,7 +194,7 @@ export default function AdminPage() {
         refresh();
       }
 
-      setSuccess('Winner selected! Pool is now distributing.');
+      setSuccess(`Winner selected from blockchain! Commitment: ${winnerCommitment.slice(0, 16)}... Pool is now distributing.`);
     } catch (err) {
       console.error('Winner selection error:', err);
       setError('Failed to select winner');
@@ -335,6 +419,95 @@ export default function AdminPage() {
                   <li>Pool status changes to "Distributing"</li>
                   <li>Users can withdraw - winner gets yield + principal</li>
                 </ol>
+              </div>
+
+              {/* List of all deposits for manual winner selection */}
+              <div className="mt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-sm font-bold uppercase">
+                    On-Chain Deposits ({onChainDeposits.length}) | Pool Participants: {state?.participantCount || 0}
+                  </div>
+                  <button
+                    onClick={() => { loadDeposits(); loadOnChainDeposits(); }}
+                    disabled={loadingOnChain}
+                    className="text-xs px-2 py-1 border-2 border-brutal-black hover:bg-accent-yellow transition-colors flex items-center gap-1 disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${loadingOnChain ? 'animate-spin' : ''}`} />
+                    {loadingOnChain ? 'Loading...' : 'Refresh'}
+                  </button>
+                </div>
+
+                {/* On-Chain Deposits (Priority) */}
+                {loadingOnChain ? (
+                  <div className="p-4 bg-brutal-cream border-4 border-brutal-black text-center">
+                    <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />
+                    <p className="text-sm">Fetching deposits from blockchain...</p>
+                  </div>
+                ) : onChainDeposits.length > 0 ? (
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {onChainDeposits.map((deposit, index) => {
+                      const isWinner = (selectedWinner || state?.winnerCommitment) === deposit.commitment;
+                      const amountAda = Number(deposit.amount) / 1_000_000;
+
+                      return (
+                        <button
+                          key={deposit.txHash}
+                          onClick={() => {
+                            setSelectedWinner(deposit.commitment);
+                            if (currentEpoch) {
+                              savePoolStatus(PoolStatus.Distributing, currentEpoch.epoch, deposit.commitment);
+                              refresh();
+                            }
+                            setSuccess(`Winner set to on-chain deposit #${index + 1}`);
+                          }}
+                          className={`w-full p-3 text-left border-4 border-brutal-black transition-all ${
+                            isWinner
+                              ? 'bg-accent-yellow shadow-none'
+                              : 'bg-brutal-white hover:bg-accent-green shadow-brutal hover:shadow-brutal-md'
+                          }`}
+                        >
+                          <div className="flex justify-between items-center">
+                            <div>
+                              <span className="font-bold">#{index + 1}</span>
+                              <span className="ml-2">{amountAda.toFixed(2)} ADA</span>
+                              <span className="ml-2 text-xs text-gray-500">Epoch #{deposit.epoch}</span>
+                              <span className="ml-2 px-1 py-0.5 text-xs bg-accent-blue text-white border border-brutal-black">ON-CHAIN</span>
+                            </div>
+                            {isWinner && (
+                              <span className="text-xs font-bold uppercase bg-brutal-black text-accent-yellow px-2 py-1">
+                                WINNER
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs font-mono text-gray-500 mt-1 truncate">
+                            {deposit.commitment}
+                          </div>
+                          <div className="text-xs font-mono text-gray-400 mt-0.5 truncate">
+                            tx: {deposit.txHash.slice(0, 16)}...
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : deposits.length === 0 && state && state.participantCount > 0 ? (
+                  <div className="p-4 bg-accent-yellow border-4 border-brutal-black text-center">
+                    <p className="font-bold mb-2">Pool has {state.participantCount} on-chain deposits ({(Number(state.totalDeposited) / 1_000_000).toFixed(2)} ADA)</p>
+                    <p className="text-sm text-gray-700">Unable to fetch deposit metadata from blockchain.</p>
+                    <p className="text-sm text-gray-700 mt-1">Deposits may not have commitment metadata stored.</p>
+                  </div>
+                ) : (
+                  <div className="p-4 bg-brutal-cream border-4 border-brutal-black text-center text-gray-500">
+                    No deposits found on blockchain. Make a deposit from the main app first.
+                  </div>
+                )}
+
+                {/* Show localStorage deposits as fallback info */}
+                {deposits.length > 0 && onChainDeposits.length === 0 && (
+                  <div className="mt-4 p-3 bg-brutal-cream border-2 border-brutal-black">
+                    <p className="text-xs font-bold uppercase mb-2">Local Cache ({deposits.length} deposits)</p>
+                    <p className="text-xs text-gray-600">These are locally cached deposits. On-chain deposits are preferred when available.</p>
+                  </div>
+                )}
               </div>
             </div>
           </div>

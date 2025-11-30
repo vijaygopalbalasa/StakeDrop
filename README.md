@@ -7,6 +7,18 @@ Built for the Cardano Hackathon powered by Hack2Skills
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Cardano](https://img.shields.io/badge/Cardano-Preview%20Testnet-blue)](https://cardano.org/)
 [![Midnight](https://img.shields.io/badge/Midnight-ZK%20Privacy-purple)](https://midnight.network/)
+[![Next.js](https://img.shields.io/badge/Next.js-14-black)](https://nextjs.org/)
+[![Aiken](https://img.shields.io/badge/Aiken-Smart%20Contracts-red)](https://aiken-lang.org/)
+
+---
+
+## Live Demo
+
+**Frontend**: [StakeDrop on Vercel](https://stake-drop.vercel.app) *(Deploy to see live)*
+
+**Smart Contract**: Deployed on Cardano Preview Testnet
+- **Validator Hash**: `b70f951d843a747f8a41e81aaa107a5f427b8e4a8b2124048e9030c7`
+- **Script Address**: `addr_test1wzkslg5wcgaf3l792pu35g89arr0y7h3j5tz3ysfr5jpsc3aq7vnw`
 
 ---
 
@@ -14,12 +26,25 @@ Built for the Cardano Hackathon powered by Hack2Skills
 
 StakeDrop is a **no-loss lottery protocol** that combines Cardano's native staking yields with Midnight Network's zero-knowledge privacy. Users deposit ADA into a shared pool that earns staking rewards. At the end of each epoch, one random winner receives all the yield while everyone else gets their full principal back.
 
-**Key Features:**
-- Zero risk of principal loss
-- Real yield from Cardano staking (~4.5% APY)
-- Privacy-preserving deposits via ZK commitments
-- Anonymous winner selection
-- Wallet-derived secrets (no file downloads needed!)
+### Why StakeDrop?
+
+| Traditional Lottery | StakeDrop |
+|---------------------|-----------|
+| Lose your money if you don't win | Get your full deposit back |
+| No privacy - everyone sees your bet | ZK commitments hide your participation |
+| House always wins | Protocol takes no fees (yield-only) |
+| Trust the operator | Trustless smart contracts |
+
+---
+
+## Key Features
+
+- **Zero Risk**: Your principal is always safe - worst case you get 100% back
+- **Real Yield**: Powered by Cardano staking (~4.5% APY)
+- **Privacy-First**: ZK commitments ensure anonymous participation
+- **Wallet-Based Recovery**: No files to download - your wallet IS your key
+- **On-Chain Verification**: All deposits and commitments verified on blockchain
+- **Neo-Brutalist UI**: Modern, bold design with excellent UX
 
 ---
 
@@ -28,14 +53,13 @@ StakeDrop is a **no-loss lottery protocol** that combines Cardano's native staki
 - [How It Works](#how-it-works)
 - [Architecture](#architecture)
 - [Tech Stack](#tech-stack)
-- [Project Structure](#project-structure)
 - [Getting Started](#getting-started)
 - [Smart Contracts](#smart-contracts)
-- [Frontend Components](#frontend-components)
-- [Testing](#testing)
+- [Frontend Features](#frontend-features)
+- [API Integration](#api-integration)
+- [Deployment](#deployment)
 - [Security](#security)
 - [Roadmap](#roadmap)
-- [License](#license)
 
 ---
 
@@ -44,23 +68,23 @@ StakeDrop is a **no-loss lottery protocol** that combines Cardano's native staki
 ### The No-Loss Mechanism
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  EPOCH LIFECYCLE                                                             │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  1. COLLECTING        2. STAKING          3. WINNER          4. DISTRIBUTING│
-│  ┌──────────┐         ┌──────────┐        ┌──────────┐       ┌──────────┐   │
-│  │ Users    │         │ Pool is  │        │ ZK proof │       │ Winner   │   │
-│  │ deposit  │   ──►   │ delegated│  ──►   │ selects  │  ──►  │ gets     │   │
-│  │ funds    │         │ to stake │        │ winner   │       │ yield    │   │
-│  │ privately│         │ pool     │        │ privately│       │ + stake  │   │
-│  └──────────┘         └──────────┘        └──────────┘       └──────────┘   │
-│                                                              │ Others   │   │
-│                                                              │ get      │   │
-│                                                              │ stake    │   │
-│                                                              │ back     │   │
-│                                                              └──────────┘   │
-└─────────────────────────────────────────────────────────────────────────────┘
++-----------------------------------------------------------------------------+
+|  EPOCH LIFECYCLE                                                             |
++-----------------------------------------------------------------------------+
+|                                                                              |
+|  1. COLLECTING        2. STAKING          3. SELECTING        4. DISTRIBUTING|
+|  +----------+         +----------+        +----------+        +----------+   |
+|  | Users    |         | Pool is  |        | ZK proof |        | Winner   |   |
+|  | deposit  |   -->   | delegated|  -->   | selects  |  -->   | gets     |   |
+|  | funds    |         | to stake |        | winner   |        | yield    |   |
+|  | privately|         | pool     |        | randomly |        | + stake  |   |
+|  +----------+         +----------+        +----------+        +----------+   |
+|                                                               | Others   |   |
+|                                                               | get      |   |
+|                                                               | stake    |   |
+|                                                               | back     |   |
+|                                                               +----------+   |
++-----------------------------------------------------------------------------+
 ```
 
 ### Example Scenario
@@ -74,64 +98,60 @@ StakeDrop is a **no-loss lottery protocol** that combines Cardano's native staki
 
 **Result**: Alice wins the entire yield. Bob and Charlie lose nothing.
 
-### Privacy with Zero-Knowledge Proofs
+### Privacy Flow
 
-StakeDrop uses Midnight Network's ZK infrastructure to ensure:
-
-1. **Hidden Deposit Amounts** - Deposits create cryptographic commitments: `commitment = hash(secret || amount)`
-2. **Anonymous Participation** - Only commitments are stored on-chain, not identities
-3. **Private Winner Selection** - Winner is determined without revealing who until they claim
-4. **Ownership Proofs** - Withdrawals require ZK proofs that verify secret ownership without revealing it
+1. **Deposit**: User signs a message with wallet -> generates deterministic secret -> creates commitment
+2. **On-Chain**: Only commitment (hash) stored - not identity or amount details
+3. **Winner Selection**: Random winner chosen from on-chain commitments
+4. **Withdrawal**: User proves ownership via ZK proof without revealing identity
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              FRONTEND (Next.js 14)                          │
-│                     MeshJS Wallet Integration + React UI                     │
-└─────────────────────────────────┬───────────────────────────────────────────┘
-                                  │
-            ┌─────────────────────┼─────────────────────┐
-            ▼                     ▼                     ▼
-┌───────────────────┐   ┌─────────────────┐   ┌─────────────────────┐
-│  MIDNIGHT NETWORK │   │   BLOCKFROST    │   │   CARDANO NETWORK   │
-│   (Privacy Layer) │   │   (API Layer)   │   │   (Staking Layer)   │
-│                   │   │                 │   │                     │
-│ • ZK Commitments  │   │ • UTxO queries  │   │ • Aiken Validators  │
-│ • Private Proofs  │   │ • Tx submission │   │ • Pool Delegation   │
-│ • Winner Selection│   │ • Chain state   │   │ • Yield Collection  │
-│ • Anonymous Claims│   │                 │   │ • Fund Distribution │
-└───────────────────┘   └─────────────────┘   └─────────────────────┘
++-----------------------------------------------------------------------------+
+|                              FRONTEND (Next.js 14)                          |
+|                     MeshJS Wallet + TailwindCSS + Neo-Brutalist UI          |
++--------------------------------------+--------------------------------------+
+                                       |
+            +--------------------------+--------------------------+
+            |                          |                          |
+            v                          v                          v
++-------------------+     +-------------------+     +-------------------+
+|  CARDANO NETWORK  |     |   BLOCKFROST/     |     |  MIDNIGHT NETWORK |
+|   (Settlement)    |     |   KOIOS API       |     |   (Privacy)       |
+|                   |     |                   |     |                   |
+| - Aiken Validator |     | - UTxO queries    |     | - Compact Circuit |
+| - Pool Delegation |     | - Tx metadata     |     | - ZK Commitments  |
+| - Fund Storage    |     | - Chain state     |     | - Winner Proofs   |
+| - CIP-20 Metadata |     | - Epoch info      |     | - Loser Proofs    |
++-------------------+     +-------------------+     +-------------------+
 ```
 
-### Data Flow
+### Key Data Flows
 
-1. **Deposit Flow:**
-   - User signs a deterministic message with their wallet
-   - Secret derived from signature: `secret = SHA-256(wallet_signature)`
-   - Commitment computed: `SHA-256(secret || amount)`
-   - No file download needed - wallet IS the key!
-   - Deposit transaction sent to Cardano with commitment
-   - Commitment registered on Midnight for privacy tracking
+**Deposit Flow:**
+```
+User Wallet --> Sign Message --> SHA-256(signature) --> Commitment
+                                        |
+                                        v
+                              Cardano Tx with CIP-20 Metadata
+                                        |
+                                        v
+                              On-Chain Commitment Registry
+```
 
-2. **Staking Flow:**
-   - Admin initiates staking when pool reaches threshold
-   - Pool UTxO delegated to Cardano stake pool
-   - Rewards accrue over epoch duration (~5 days)
-
-3. **Winner Selection Flow:**
-   - Randomness derived from on-chain entropy
-   - Winner commitment selected via verifiable random function
-   - Winner published without revealing identity
-
-4. **Withdrawal Flow:**
-   - User connects same wallet used for deposit
-   - Signs same message to regenerate secret
-   - ZK proof generated proving ownership
-   - Winner gets principal + yield, losers get principal
-   - Replay protection prevents double withdrawals
+**Withdrawal Flow:**
+```
+User Wallet --> Re-sign Message --> Verify Commitment Match
+                                        |
+                                        v
+                              Generate ZK Proof (Winner/Loser)
+                                        |
+                                        v
+                              Cardano Withdrawal Tx
+```
 
 ---
 
@@ -139,78 +159,13 @@ StakeDrop uses Midnight Network's ZK infrastructure to ensure:
 
 | Layer | Technology | Purpose |
 |-------|------------|---------|
-| **Frontend** | Next.js 14, TypeScript, TailwindCSS | User interface with App Router |
-| **Wallet** | MeshJS | Cardano wallet integration (Eternl, Nami, Lace) |
-| **Blockchain Data** | Blockfrost API | Query Cardano chain state |
-| **Smart Contracts (Cardano)** | Aiken (Plutus V3) | Pool validator, staking logic |
-| **Smart Contracts (Midnight)** | Compact | ZK circuits for privacy |
-| **Cryptography** | SHA-256, blake2b | Commitment scheme, signatures |
+| **Frontend** | Next.js 14, TypeScript, TailwindCSS | Modern React with App Router |
+| **Wallet** | MeshJS | Cardano wallet integration |
+| **Blockchain API** | Blockfrost + Koios (fallback) | Chain queries, tx submission |
+| **Smart Contracts** | Aiken (Plutus V3) | Pool validator logic |
+| **Privacy Layer** | Midnight Compact | ZK circuits for privacy |
 | **Styling** | TailwindCSS | Neo-brutalist design system |
-
----
-
-## Project Structure
-
-```
-/StakeDrop
-├── /contracts/cardano              # Aiken smart contracts
-│   ├── aiken.toml                  # Project configuration
-│   ├── aiken.lock                  # Dependency lock file
-│   ├── /lib/stakedrop/
-│   │   └── types.ak                # Shared type definitions
-│   ├── /validators/
-│   │   └── pool.ak                 # Main pool validator (Plutus V3)
-│   └── /scripts/
-│       ├── deploy.ts               # Deployment script
-│       └── package.json            # Script dependencies
-│
-├── /midnight                       # Midnight Compact contracts
-│   ├── package.json
-│   └── /src/
-│       └── stakedrop.compact       # ZK circuit definitions
-│
-├── /frontend                       # Next.js application
-│   ├── package.json
-│   ├── next.config.js
-│   ├── tailwind.config.js
-│   ├── tsconfig.json
-│   ├── .env.example                # Environment template
-│   └── /src/
-│       ├── /app/                   # Next.js App Router
-│       │   ├── layout.tsx          # Root layout with providers
-│       │   ├── page.tsx            # Landing page
-│       │   ├── globals.css         # Global styles
-│       │   ├── /app/
-│       │   │   └── page.tsx        # Main application page
-│       │   └── /admin/
-│       │       └── page.tsx        # Admin dashboard
-│       ├── /components/
-│       │   ├── Header.tsx          # Navigation header
-│       │   ├── Footer.tsx          # Site footer
-│       │   ├── DepositForm.tsx     # Deposit with commitment
-│       │   ├── WithdrawForm.tsx    # Withdraw with ZK proof
-│       │   ├── PoolStats.tsx       # Pool statistics display
-│       │   ├── WalletConnect.tsx   # Wallet connection UI
-│       │   ├── EpochTimer.tsx      # Countdown timer
-│       │   └── /landing/           # Landing page sections
-│       ├── /hooks/
-│       │   ├── useCardanoWallet.ts # Wallet state management
-│       │   └── usePool.ts          # Pool state management
-│       ├── /lib/
-│       │   ├── blockfrost.ts       # Blockfrost API client
-│       │   ├── contract.ts         # Contract interaction helpers
-│       │   ├── midnight.ts         # Midnight ZK integration
-│       │   ├── validation.ts       # Input validation
-│       │   ├── errors.ts           # Error handling
-│       │   ├── fees.ts             # Fee estimation
-│       │   └── constants.ts        # Configuration constants
-│       └── /types/
-│           └── index.ts            # TypeScript definitions
-│
-├── .gitignore
-├── LICENSE
-└── README.md
-```
+| **Deployment** | Vercel | Serverless hosting |
 
 ---
 
@@ -222,89 +177,61 @@ StakeDrop uses Midnight Network's ZK infrastructure to ensure:
 # Node.js 18+ required
 node --version  # v18.0.0 or higher
 
-# Install Aiken (Cardano smart contract language)
+# Install Aiken (optional - for contract development)
 curl -sSfL https://install.aiken-lang.org | bash
-source ~/.bashrc  # or restart terminal
 aiken --version   # v1.1.5 or higher
 ```
 
-### Supported Wallets
-
-- [Eternl](https://eternl.io/) - Full-featured Cardano wallet
-- [Nami](https://namiwallet.io/) - Simple and lightweight
-- [Lace](https://www.lace.io/) - Official IOG wallet
-
-Configure your wallet for **Preview Testnet**.
-
-### Get Test ADA
-
-Visit the [Cardano Preview Faucet](https://faucet.preview.world.dev.cardano.org/) to get free test ADA.
-
----
-
 ### Installation
 
-#### 1. Clone Repository
-
 ```bash
+# Clone repository
 git clone https://github.com/vijaygopalbalasa/StakeDrop.git
 cd StakeDrop
-```
 
-#### 2. Install Dependencies
-
-```bash
-# Root dependencies
-npm install
-
-# Frontend dependencies
+# Install frontend dependencies
 cd frontend
 npm install
+
+# Configure environment
+cp .env.example .env.local
 ```
 
-#### 3. Configure Environment
-
-Copy the example environment file:
-
-```bash
-cp frontend/.env.example frontend/.env.local
-```
+### Environment Variables
 
 Edit `frontend/.env.local`:
 
 ```env
-# Cardano Network Configuration
+# Network Configuration
 NEXT_PUBLIC_CARDANO_NETWORK=preview
 
 # Blockfrost API (get free key at https://blockfrost.io)
-NEXT_PUBLIC_BLOCKFROST_API_KEY=previewXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+NEXT_PUBLIC_BLOCKFROST_PROJECT_ID=previewXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
-# Pool Validator (deployed contract address)
+# Contract Address (pre-deployed)
 NEXT_PUBLIC_POOL_VALIDATOR_HASH=b70f951d843a747f8a41e81aaa107a5f427b8e4a8b2124048e9030c7
 
-# Feature Flags
-NEXT_PUBLIC_DEMO_MODE=true
-NEXT_PUBLIC_DEBUG_MODE=false
+# Optional: Admin wallet for pool management
+NEXT_PUBLIC_ADMIN_ADDRESS=addr_test1qz...
 ```
 
-#### 4. Build Smart Contracts
-
-```bash
-cd contracts/cardano
-aiken build
-aiken check  # Run tests - should show 7/7 passing
-```
-
-#### 5. Start Development Server
+### Run Development Server
 
 ```bash
 cd frontend
 npm run dev
 ```
 
-#### 6. Open Application
+Open **http://localhost:3000**
 
-Navigate to **http://localhost:3000**
+### Supported Wallets
+
+- **Eternl** - Full-featured Cardano wallet
+- **Nami** - Simple and lightweight
+- **Lace** - Official IOG wallet
+- **Flint** - Mobile-friendly option
+
+Configure your wallet for **Preview Testnet** and get test ADA from the [Cardano Faucet](https://faucet.preview.world.dev.cardano.org/).
 
 ---
 
@@ -312,7 +239,7 @@ Navigate to **http://localhost:3000**
 
 ### Cardano Pool Validator (Aiken)
 
-The main validator at `contracts/cardano/validators/pool.ak` handles:
+Located at `contracts/cardano/validators/pool.ak`
 
 **Pool State (Datum):**
 ```aiken
@@ -322,147 +249,134 @@ type PoolDatum {
   epoch_end: POSIXTime,
   total_deposited: Int,
   participant_count: Int,
-  midnight_root: ByteArray,
-  status: PoolStatus,
+  midnight_root: ByteArray,      // Merkle root of commitments
+  status: PoolStatus,            // Collecting | Staking | SelectingWinner | Distributing
   stake_pool_id: ByteArray,
   yield_amount: Int,
-  winner_commitment: ByteArray,
+  winner_commitment: ByteArray,  // Selected winner's commitment
   withdrawal_count: Int,
   winner_withdrawn: Bool,
-  withdrawn_commitments: List<ByteArray>,
+  withdrawn_commitments: List<ByteArray>,  // Replay protection
 }
 ```
 
-**Supported Actions (Redeemer):**
-```aiken
-type PoolRedeemer {
-  Deposit { commitment: ByteArray, amount: Int }
-  InitiateStaking
-  UpdateYield { new_yield: Int }
-  FinalizeEpoch { winner_commitment: ByteArray, winner_proof: ByteArray }
-  WithdrawWinner { commitment: ByteArray, midnight_proof: ByteArray }
-  WithdrawLoser { commitment: ByteArray, midnight_proof: ByteArray }
-  ClosePool
-}
-```
-
-**Security Features:**
-- Minimum deposit enforcement (10 ADA)
-- Admin signature verification
-- ZK proof validation for withdrawals
-- Replay attack protection via commitment tracking
-- Division-by-zero guards
+**Supported Actions:**
+- `Deposit` - Add funds with ZK commitment
+- `InitiateStaking` - Start staking period
+- `UpdateYield` - Update accumulated yield
+- `FinalizeEpoch` - Select winner commitment
+- `WithdrawWinner` - Winner claims principal + yield
+- `WithdrawLoser` - Non-winner claims principal
+- `ClosePool` - Admin cleanup
 
 ### Midnight Privacy Contracts (Compact)
 
-Located at `midnight/src/stakedrop.compact`:
+Located at `midnight/src/stakedrop.compact`
 
-**Commitment Generation:**
-```compact
-witness generateCommitment(secret: Bytes<32>, amount: Field): Commitment {
-  return hash(concat(secret, toBytes(amount)));
-}
-```
-
-**Winner Proof Circuit:**
-```compact
-export circuit proveWinner(
-  secret: Bytes<32>,            // Private
-  amount: Field,                // Private
-  myCommitment: Commitment,     // Public
-  winnerCommitment: Commitment  // Public
-): Boolean {
-  return isWinner(secret, amount, myCommitment, winnerCommitment);
-}
-```
-
-**Loser Proof Circuit:**
-```compact
-export circuit proveLoser(
-  secret: Bytes<32>,            // Private
-  amount: Field,                // Private
-  myCommitment: Commitment,     // Public
-  winnerCommitment: Commitment, // Public
-  isRegistered: Boolean         // Public
-): Boolean {
-  const ownsCommitment = verifyOwnership(secret, amount, myCommitment);
-  const notWinner = myCommitment != winnerCommitment;
-  return ownsCommitment && isRegistered && notWinner;
-}
-```
+**7 Compiled Circuits:**
+1. `generateCommitment` - Create ZK commitment from secret
+2. `verifyOwnership` - Prove you own a commitment
+3. `proveWinner` - Prove you are the winner
+4. `proveLoser` - Prove you participated but didn't win
+5. `verifyProof` - Validate any proof
+6. `isParticipant` - Check participation status
+7. `selectWinner` - Random winner selection
 
 ---
 
-## Frontend Components
+## Frontend Features
+
+### Pages
+
+| Route | Purpose |
+|-------|---------|
+| `/` | Landing page with features and CTA |
+| `/app` | Main application - deposit/withdraw interface |
+| `/admin` | Pool management dashboard |
 
 ### Key Components
 
-| Component | Purpose |
-|-----------|---------|
-| `WalletConnect.tsx` | Handles wallet connection with Eternl, Nami, Lace support |
-| `DepositForm.tsx` | Deposit flow with wallet-derived secret generation |
-| `WithdrawForm.tsx` | Withdrawal with wallet signature verification |
-| `PoolStats.tsx` | Displays pool status, participant count, prize amount |
-| `EpochTimer.tsx` | Countdown to epoch end |
+| Component | Features |
+|-----------|----------|
+| `DepositForm` | Amount input, wallet signing, commitment generation, tx history |
+| `WithdrawForm` | Deposit selection, proof generation, on-chain verification |
+| `PoolStats` | Live pool data, participant count, prize amount |
+| `WalletConnect` | Multi-wallet support, network switching |
+| `EpochTimer` | Countdown to epoch end |
 
-### Custom Hooks
+### Blockchain Integration
 
-| Hook | Purpose |
-|------|---------|
-| `useCardanoWallet` | Wallet state, connection, balance, transactions |
-| `usePool` | Pool state, deposits, withdrawals, status |
+The app fetches deposit data directly from the blockchain:
 
-### Library Modules
+```typescript
+// Fetch deposits from blockchain transaction metadata
+const deposits = await fetchDepositsFromBlockchain();
 
-| Module | Purpose |
-|--------|---------|
-| `blockfrost.ts` | Blockfrost API integration for chain queries |
-| `contract.ts` | Contract encoding/decoding, transaction building |
-| `midnight.ts` | ZK commitment and proof generation |
-| `validation.ts` | Input validation (amounts, addresses, secrets) |
-| `errors.ts` | Custom error types with user-friendly messages |
-| `fees.ts` | Transaction fee estimation |
+// Verify commitment exists on-chain
+const isVerified = await isCommitmentOnChain(commitment);
+
+// Get commitments from CIP-20 metadata (label 674)
+const commitments = await getCommitmentsFromBlockchain();
+```
 
 ---
 
-## Testing
+## API Integration
 
-### Run Contract Tests
+### Blockfrost (Primary)
 
-```bash
-cd contracts/cardano
-aiken check
+```typescript
+// UTxO queries
+GET /addresses/{address}/utxos
+
+// Transaction metadata
+GET /txs/{hash}/metadata
+
+// Epoch info
+GET /epochs/latest
 ```
 
-Expected output:
-```
-Testing ...
-  deposit_minimum_enforced ..................... PASS
-  admin_requires_signature ..................... PASS
-  winner_gets_yield ............................ PASS
-  loser_gets_principal_only .................... PASS
-  all_must_withdraw_before_close ............... PASS
-  replay_protection_blocks_double_withdrawal ... PASS
-  proof_type_verification ...................... PASS
+### Koios (Fallback)
 
-Summary: 7 passed, 0 failed
+Free, no API key required:
+
+```typescript
+// Blockchain tip
+GET /tip
+
+// Address info
+POST /address_info
 ```
 
-### Run Frontend Build
+---
+
+## Deployment
+
+### Vercel (Recommended)
+
+1. Push to GitHub
+2. Import project in Vercel
+3. Set environment variables:
+   - `NEXT_PUBLIC_CARDANO_NETWORK`
+   - `NEXT_PUBLIC_BLOCKFROST_PROJECT_ID`
+   - `NEXT_PUBLIC_POOL_VALIDATOR_HASH`
+4. Deploy
+
+### Manual Build
 
 ```bash
 cd frontend
-npm run lint
 npm run build
+npm start
 ```
 
-### Manual Testing Flow
+### Contract Deployment
 
-1. **Connect Wallet** - Use Eternl/Nami on Preview testnet
-2. **Get Test ADA** - Use the faucet link in the app
-3. **Make Deposit** - Enter amount, sign wallet message to create secret
-4. **Check Pool Stats** - Verify deposit registered
-5. **Test Withdrawal** - Select deposit, sign message to prove ownership, claim funds
+```bash
+cd contracts/cardano
+aiken build
+node scripts/deploy.mjs
+```
 
 ---
 
@@ -470,37 +384,49 @@ npm run build
 
 ### Security Features
 
-- **ZK Proof Verification**: All withdrawals verified via blake2b signature check
-- **Replay Protection**: Withdrawn commitments tracked to prevent double spending
-- **Admin Controls**: Epoch management requires admin signature
-- **Input Validation**: Client-side and on-chain validation
-- **Wallet-Derived Secrets**: No files to lose - your wallet IS your key
+- **ZK Proof Verification**: Withdrawals require valid proofs
+- **Replay Protection**: Withdrawn commitments tracked
+- **On-Chain Verification**: All data verified from blockchain
+- **Wallet-Derived Secrets**: Deterministic, recoverable
+- **Input Validation**: Client + on-chain validation
 
-### Security Considerations
+### Security Model
 
-1. **Wallet Security**: Your wallet controls access to your deposits. Keep your wallet secure.
-2. **Deterministic Secrets**: Same wallet + same epoch + same amount = same secret. This enables recovery.
-3. **Testnet Only**: This is a hackathon project. Not audited for mainnet use.
-4. **Admin Trust**: Current version requires trusted admin for epoch management.
+| Aspect | Status |
+|--------|--------|
+| Smart Contract Tests | 7/7 passing |
+| ZK Circuit Compilation | 7 circuits verified |
+| Input Validation | Comprehensive |
+| Replay Protection | Implemented |
+| Admin Controls | Signature verified |
 
 ### Known Limitations
 
-- Demo mode uses simulated ZK proofs (not real Midnight network)
-- Admin key is centralized (future: DAO governance)
-- No formal security audit performed
+- Testnet only (not audited for mainnet)
+- Admin key is centralized (future: DAO)
+- Midnight integration is simulated in demo mode
 
 ---
 
 ## Roadmap
 
+### Completed
+
 - [x] Core deposit/withdraw flow
-- [x] Wallet integration (Eternl, Nami, Lace)
+- [x] Multi-wallet integration (Eternl, Nami, Lace, Flint)
 - [x] ZK commitment scheme
 - [x] Aiken smart contracts with tests
-- [x] Midnight Compact privacy contracts
-- [x] Input validation and error handling
-- [x] Fee estimation
-- [ ] Full Midnight network integration
+- [x] Midnight Compact contracts (7 circuits)
+- [x] Blockchain-based deposit verification
+- [x] On-chain commitment fetching
+- [x] CIP-20 metadata integration
+- [x] Koios API fallback
+- [x] Neo-brutalist UI design
+- [x] Vercel deployment ready
+
+### Planned
+
+- [ ] Full Midnight mainnet integration
 - [ ] Multi-pool support (different stake tiers)
 - [ ] DAO governance for parameters
 - [ ] Security audit
@@ -508,11 +434,40 @@ npm run build
 
 ---
 
+## Project Structure
+
+```
+StakeDrop/
+├── contracts/cardano/           # Aiken smart contracts
+│   ├── validators/pool.ak       # Main pool validator
+│   ├── lib/stakedrop/types.ak   # Type definitions
+│   └── scripts/                 # Deployment scripts
+├── midnight/                    # Midnight Compact contracts
+│   └── src/stakedrop.compact    # ZK circuits
+├── frontend/                    # Next.js application
+│   ├── src/
+│   │   ├── app/                 # Pages (/, /app, /admin)
+│   │   ├── components/          # React components
+│   │   ├── hooks/               # Custom hooks
+│   │   ├── lib/                 # Utilities
+│   │   │   ├── blockchain.ts    # On-chain data fetching
+│   │   │   ├── blockfrost.ts    # Blockfrost API
+│   │   │   ├── koios.ts         # Koios API (fallback)
+│   │   │   ├── contract.ts      # Contract helpers
+│   │   │   └── midnight.ts      # ZK integration
+│   │   └── types/               # TypeScript types
+│   ├── .env.example             # Environment template
+│   └── package.json
+├── README.md
+└── LICENSE
+```
+
+---
+
 ## Resources
 
 ### Documentation
 - [Midnight Developer Hub](https://midnight.network/developer-hub)
-- [Midnight Documentation](https://docs.midnight.network/)
 - [Cardano Developer Portal](https://developers.cardano.org/)
 - [Aiken Language Guide](https://aiken-lang.org/language-tour)
 - [MeshJS Documentation](https://meshjs.dev/apis)
@@ -526,25 +481,30 @@ npm run build
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions welcome! Please:
 
 1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+2. Create feature branch (`git checkout -b feature/amazing`)
+3. Commit changes (`git commit -m 'Add amazing feature'`)
+4. Push branch (`git push origin feature/amazing`)
+5. Open Pull Request
 
 ---
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License - see [LICENSE](LICENSE) file.
 
 ---
 
 ## Acknowledgments
 
-- Built for the **Cardano Hackathon** powered by **Hack2Skills**
-- Thanks to IOG for Cardano and Midnight Network
-- Thanks to the Aiken team for the smart contract language
-- Thanks to MeshJS for wallet integration tools
+- Built for **Cardano Hackathon** powered by **Hack2Skills**
+- Cardano Foundation & IOG for blockchain infrastructure
+- Midnight Network for ZK privacy layer
+- Aiken team for smart contract language
+- MeshJS team for wallet integration
+
+---
+
+**Made with love for the Cardano community**

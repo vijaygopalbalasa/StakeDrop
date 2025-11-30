@@ -1,13 +1,27 @@
 'use client';
 
 import { usePool } from '@/hooks/usePool';
-import { formatAda } from '@/lib/constants';
+import { formatAda, NETWORK } from '@/lib/constants';
+import { getPoolScriptAddress } from '@/lib/contract';
+import { getAddressExplorerUrl } from '@/lib/blockchain';
 import { PoolStatus } from '@/types';
-import { Users, Coins, Trophy, Clock, TrendingUp, Lock, AlertCircle, RefreshCw, Zap } from 'lucide-react';
+import { Users, Coins, Trophy, Clock, TrendingUp, Lock, AlertCircle, RefreshCw, Zap, ExternalLink, Copy, Check } from 'lucide-react';
+import { useState } from 'react';
 
 export function PoolStats() {
   const { state, loading, error, epochInfo, getTimeRemaining, refresh } = usePool();
   const timeRemaining = getTimeRemaining();
+  const [copied, setCopied] = useState(false);
+
+  const scriptAddress = getPoolScriptAddress(NETWORK as 'mainnet' | 'preview' | 'preprod');
+  const shortAddress = `${scriptAddress.slice(0, 20)}...${scriptAddress.slice(-8)}`;
+  const explorerUrl = getAddressExplorerUrl(scriptAddress);
+
+  const handleCopyAddress = async () => {
+    await navigator.clipboard.writeText(scriptAddress);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   if (loading) {
     return (
@@ -154,6 +168,36 @@ export function PoolStats() {
         <span className="font-mono text-sm">
           Ends: {state.epochEnd.toLocaleDateString()} {state.epochEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </span>
+      </div>
+
+      {/* Contract Address Footer */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 border-t-4 border-brutal-black bg-accent-purple text-white gap-2">
+        <div className="flex items-center gap-2">
+          <Lock className="w-4 h-4" />
+          <span className="font-bold uppercase text-xs">Pool Contract</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <a
+            href={explorerUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-mono text-xs hover:text-accent-yellow transition-colors flex items-center gap-1"
+          >
+            {shortAddress}
+            <ExternalLink className="w-3 h-3" />
+          </a>
+          <button
+            onClick={handleCopyAddress}
+            className="p-1 hover:bg-white/20 rounded transition-colors"
+            title="Copy contract address"
+          >
+            {copied ? (
+              <Check className="w-3 h-3 text-accent-green" />
+            ) : (
+              <Copy className="w-3 h-3" />
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );

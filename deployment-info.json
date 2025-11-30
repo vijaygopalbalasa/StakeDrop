@@ -1,0 +1,11 @@
+{
+  "network": "preview",
+  "txHash": "b5c867b43c5e11fc18bb3e539ab53e01b17428ba1c0e19ed098c3a8940255ceb",
+  "scriptAddress": "addr_test1wzy5mhvldymk7c6xv8590uthxz43ckuvpcdz46cgfqs96ssw3ntxc",
+  "validatorHash": "b70f951d843a747f8a41e81aaa107a5f427b8e4a8b2124048e9030c7",
+  "adminAddress": "addr_test1qqct8dwln94u4ylx8kh07pkm0ug8lx8f425s0qvyzmnt84r0h6flxh9a7rkmex37rqn3yt9lfmd0aq8tfhhqm5jjpf0qyex4w4",
+  "adminPkh": "30b3b5df996bca93e63daeff06db7f107f98e9aaa907818416e6b3d4",
+  "epochId": 1131,
+  "epochEnd": 1764884637926,
+  "deployedAt": "2025-11-29T21:43:59.256Z"
+}
