@@ -147,44 +147,64 @@ export function DepositForm() {
       setLoading(true);
       setError(null);
 
-      const { Transaction, BlockfrostProvider } = await import('@meshsdk/core');
+      const { MeshTxBuilder, BlockfrostProvider } = await import('@meshsdk/core');
       const lovelaceAmount = parseAda(amount).toString();
 
       // Get the pool validator script address for the current network
-      const scriptAddress = getPoolScriptAddress(network as 'mainnet' | 'preview' | 'preprod');
+      // Ensure we use a valid network value (default to 'preview' if detection fails)
+      const validNetwork = ['mainnet', 'preview', 'preprod'].includes(network)
+        ? network as 'mainnet' | 'preview' | 'preprod'
+        : 'preview';
+      const scriptAddress = getPoolScriptAddress(validNetwork);
+
+      // Validate the script address before building transaction
+      if (!scriptAddress || !scriptAddress.startsWith('addr')) {
+        throw new Error(`Invalid script address configuration for network: ${validNetwork}`);
+      }
 
       console.log('[StakeDrop] Building transaction:', {
-        network,
+        network: validNetwork,
         scriptAddress,
         lovelaceAmount,
         userAddress: address,
         commitment: depositData.commitment.hex,
       });
 
-      // Create a Blockfrost provider for the network
-      // MeshJS needs proper network configuration to avoid address encoding issues
+      // Create Blockfrost provider for UTXO fetching
       const blockfrostKey = process.env.NEXT_PUBLIC_BLOCKFROST_PROJECT_ID || '';
+      if (!blockfrostKey) {
+        throw new Error('Blockfrost API key not configured');
+      }
       const provider = new BlockfrostProvider(blockfrostKey);
 
-      // Use the wallet from hook with explicit provider to ensure proper UTXO fetching
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const tx = new Transaction({ initiator: wallet as any, fetcher: provider });
+      // Get wallet change address
+      const changeAddress = await wallet.getChangeAddress();
 
-      // Send to script address with commitment in metadata
-      tx.sendLovelace(scriptAddress, lovelaceAmount);
+      console.log('[StakeDrop] Change address:', changeAddress);
 
-      // Include Midnight commitment and ZK proof reference in metadata (CIP-20)
-      tx.setMetadata(674, {
-        msg: ['StakeDrop ZK Deposit'],
-        commitment: depositData.commitment.hex.slice(0, 64),
-        epoch: state.epochId,
-        amount: lovelaceAmount,
-        zkProof: depositData.proof?.slice(0, 64) || 'simulated',
-        midnight: midnightAvailable ? 'connected' : 'simulated',
-        walletDerived: 'true',
+      // Build transaction using MeshTxBuilder for more control
+      // Use Blockfrost to fetch UTXOs for the wallet address
+      const txBuilder = new MeshTxBuilder({
+        fetcher: provider,
+        verbose: false,
       });
 
-      const unsignedTx = await tx.build();
+      // Build the transaction - let MeshTxBuilder fetch UTXOs from Blockfrost
+      const unsignedTx = await txBuilder
+        .txOut(scriptAddress, [{ unit: 'lovelace', quantity: lovelaceAmount }])
+        .changeAddress(changeAddress)
+        .metadataValue(674, {
+          msg: ['StakeDrop ZK Deposit'],
+          commitment: depositData.commitment.hex.slice(0, 64),
+          epoch: state.epochId.toString(),
+          amount: lovelaceAmount,
+          zkProof: depositData.proof?.slice(0, 64) || 'simulated',
+          midnight: midnightAvailable ? 'connected' : 'simulated',
+          walletDerived: 'true',
+        })
+        .selectUtxosFrom(await provider.fetchAddressUTxOs(changeAddress))
+        .complete();
+
       const signedTx = await wallet.signTx(unsignedTx);
       const txHashResult = await wallet.submitTx(signedTx);
 
