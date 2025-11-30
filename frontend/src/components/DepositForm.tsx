@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react';
 import { useCardanoWallet } from '@/hooks/useCardanoWallet';
 import { usePool, saveDeposit } from '@/hooks/usePool';
 import { parseAda, MIN_DEPOSIT_ADA, formatAda, DEFAULT_DEPOSIT_ADA } from '@/lib/constants';
-import { getPoolScriptAddress } from '@/lib/contract';
+// getPoolScriptAddress not used - using hardcoded address for reliability
+// import { getPoolScriptAddress } from '@/lib/contract';
 import {
   generateWalletDerivedCommitment,
   generateDepositProof,
@@ -153,66 +154,40 @@ export function DepositForm() {
       setLoading(true);
       setError(null);
 
-      const { MeshTxBuilder, BlockfrostProvider } = await import('@meshsdk/core');
+      const { Transaction } = await import('@meshsdk/core');
       const lovelaceAmount = parseAda(amount).toString();
 
-      // Get the pool validator script address for the current network
-      // Ensure we use a valid network value (default to 'preview' if detection fails)
-      const validNetwork = ['mainnet', 'preview', 'preprod'].includes(network)
-        ? network as 'mainnet' | 'preview' | 'preprod'
-        : 'preview';
-      const scriptAddress = getPoolScriptAddress(validNetwork);
-
-      // Validate the script address before building transaction
-      if (!scriptAddress || !scriptAddress.startsWith('addr')) {
-        throw new Error(`Invalid script address configuration for network: ${validNetwork}`);
-      }
+      // Use hardcoded address for preview network to avoid any env var issues on Vercel
+      const scriptAddress = 'addr_test1wzy5mhvldymk7c6xv8590uthxz43ckuvpcdz46cgfqs96ssw3ntxc';
 
       console.log('[StakeDrop] Building transaction:', {
-        network: validNetwork,
+        network,
         scriptAddress,
         lovelaceAmount,
         userAddress: address,
         commitment: depositData.commitment.hex,
       });
 
-      // Create Blockfrost provider for UTXO fetching
-      const blockfrostKey = process.env.NEXT_PUBLIC_BLOCKFROST_PROJECT_ID;
-      if (!blockfrostKey) {
-        throw new Error('Blockfrost API key not configured. Please set NEXT_PUBLIC_BLOCKFROST_PROJECT_ID environment variable.');
-      }
+      // Use simple Transaction API with wallet as initiator
+      // Cast to any to bypass type mismatch between wallet API versions
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const tx = new Transaction({ initiator: wallet as any });
 
-      console.log('[StakeDrop] Using Blockfrost key:', blockfrostKey.substring(0, 10) + '...');
-      const provider = new BlockfrostProvider(blockfrostKey);
+      // Send to script address
+      tx.sendLovelace(scriptAddress, lovelaceAmount);
 
-      // Get wallet change address
-      const changeAddress = await wallet.getChangeAddress();
-
-      console.log('[StakeDrop] Change address:', changeAddress);
-
-      // Build transaction using MeshTxBuilder for more control
-      // Use Blockfrost to fetch UTXOs for the wallet address
-      const txBuilder = new MeshTxBuilder({
-        fetcher: provider,
-        verbose: false,
+      // Add metadata
+      tx.setMetadata(674, {
+        msg: ['StakeDrop ZK Deposit'],
+        commitment: depositData.commitment.hex.slice(0, 64),
+        epoch: state.epochId,
+        amount: lovelaceAmount,
+        zkProof: depositData.proof?.slice(0, 64) || 'simulated',
+        midnight: midnightAvailable ? 'connected' : 'simulated',
+        walletDerived: 'true',
       });
 
-      // Build the transaction - let MeshTxBuilder fetch UTXOs from Blockfrost
-      const unsignedTx = await txBuilder
-        .txOut(scriptAddress, [{ unit: 'lovelace', quantity: lovelaceAmount }])
-        .changeAddress(changeAddress)
-        .metadataValue(674, {
-          msg: ['StakeDrop ZK Deposit'],
-          commitment: depositData.commitment.hex.slice(0, 64),
-          epoch: state.epochId.toString(),
-          amount: lovelaceAmount,
-          zkProof: depositData.proof?.slice(0, 64) || 'simulated',
-          midnight: midnightAvailable ? 'connected' : 'simulated',
-          walletDerived: 'true',
-        })
-        .selectUtxosFrom(await provider.fetchAddressUTxOs(changeAddress))
-        .complete();
-
+      const unsignedTx = await tx.build();
       const signedTx = await wallet.signTx(unsignedTx);
       const txHashResult = await wallet.submitTx(signedTx);
 
