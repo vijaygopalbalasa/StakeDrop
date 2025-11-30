@@ -205,10 +205,16 @@ export async function generateWalletDerivedCommitment(
   // Generate the deterministic signing message
   const message = getSigningMessage(epochId, amount);
 
-  // MeshJS signData expects a plain string message, NOT hex-encoded
-  // The wallet will handle the CIP-8 encoding internally
-  debugLog('Requesting wallet signature for message');
-  const { signature } = await wallet.signData(message, address);
+  // MeshJS signData expects the payload to be hex-encoded
+  // Convert the message string to hex for proper CIP-8/CIP-30 signing
+  const messageHex = stringToHex(message);
+
+  debugLog('Requesting wallet signature for message', {
+    messagePreview: message.slice(0, 50) + '...',
+    messageHex: messageHex.slice(0, 32) + '...'
+  });
+
+  const { signature } = await wallet.signData(address, messageHex);
 
   // Derive secret from signature
   const secret = await deriveSecretFromSignature(signature);
@@ -221,6 +227,15 @@ export async function generateWalletDerivedCommitment(
   });
 
   return { secret, commitment };
+}
+
+/**
+ * Convert a string to hex encoding
+ */
+export function stringToHex(str: string): string {
+  const encoder = new TextEncoder();
+  const bytes = encoder.encode(str);
+  return bytesToHex(bytes);
 }
 
 /**
